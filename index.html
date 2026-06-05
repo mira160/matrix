@@ -933,12 +933,25 @@
             const rowClass = isNearest && r.status === 'OK' ? 'nearest' : '';
             const nearestBadge = isNearest && r.status === 'OK' ? '<span class="badge">⭐ Ближайший</span>' : '';
             
+            // ПРЕОБРАЗОВАНИЕ РАССТОЯНИЯ: проверяем что это число, заменяем точку на запятую
+            let distanceValue = '—';
+            if (r.status === 'OK' && r.distance !== undefined && r.distance !== null && !isNaN(r.distance)) {
+                // Преобразуем в число с 2 знаками и заменяем точку на запятую
+                distanceValue = r.distance.toFixed(2).replace('.', ',');
+            }
+            
+            // ПРЕОБРАЗОВАНИЕ ВРЕМЕНИ
+            let timeValue = '—';
+            if (r.status === 'OK' && r.duration !== undefined && r.duration !== null && !isNaN(r.duration)) {
+                timeValue = Math.round(r.duration).toString();
+            }
+            
             htmlTable += `<tr class="${rowClass}">
                 <td style="text-align: center;">${idx + 1}</td>
                 <td>${escapeHtml(r.from)}</td>
                 <td>${escapeHtml(r.to)}</td>
-                <td class="distance-cell">${r.distance ? r.distance.toFixed(2) : '—'}</td>
-                <td class="time-cell">${r.duration ? Math.round(r.duration) : '—'}</td>
+                <td class="distance-cell">${distanceValue}</td>
+                <td class="time-cell">${timeValue}</td>
                 <td style="text-align: center;">${nearestBadge}</td>
                 <td>${r.status === 'OK' ? '✅ Успешно' : '❌ ' + escapeHtml(r.status)}</td>
              </tr>`;
@@ -948,7 +961,7 @@
                 </tbody>
             </table>
             <div class="footer">
-                © Калькулятор расстояний OSRM | Данные получены через OpenStreetMap Routing Machine<br>
+                © Pokovylyaly Distance Calculator | Данные получены через OpenStreetMap Routing Machine<br>
                 ⭐ Желтым цветом выделены ближайшие маршруты для каждой точки "Откуда"
             </div>
         </body>
@@ -967,7 +980,7 @@
         
         updateStatus(`✅ Экспортировано ${results.length} маршрутов в Excel (ближайшие выделены желтым)`);
     });
-    
+        
     // ========== КНОПКИ ==========
     document.getElementById('locateBtn').addEventListener('click', () => {
         if (navigator.geolocation) {
