@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Калькулятор матрицы расстояний OSRM</title>
+    <link href="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; height: 100vh; overflow: hidden; }
+        
+        .app-container { display: flex; height: 100%; }
+        .panel { width: 480px; background: white; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow-y: auto; box-shadow: 2px 0 12px rgba(0,0,0,0.05); }
+        .map-container { flex: 1; position: relative; background: #e9eef3; }
+        #map { width: 100%; height: 100%; }
+        
+        .section { padding: 20px; border-bottom: 1px solid #eef2f6; }
+        .section-title { font-size: 16px; font-weight: 600; color: #1e293b; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .section-title i { color: #059669; }
+        
+        .file-area { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 16px; padding: 15px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 16px; }
+        .file-area:hover { border-color: #059669; background: #f0fdf4; }
+        .file-area i { font-size: 28px; color: #64748b; }
+        .file-area p { color: #475569; font-size: 13px; margin-top: 8px; }
+        .file-name { font-size: 11px; color: #059669; margin-top: 6px; word-break: break-all; }
+        input[type="file"] { display: none; }
+        
+        .preview-table { max-height: 150px; overflow-y: auto; font-size: 11px; border: 1px solid #e2e8f0; border-radius: 12px; margin-top: 12px; }
+        .preview-table table { width: 100%; border-collapse: collapse; }
+        .preview-table th { background: #f1f5f9; padding: 8px; position: sticky; top: 0; font-weight: 600; }
+        .preview-table td { padding: 6px 8px; border-top: 1px solid #e2e8f0; }
+        
+        .settings-row { margin-bottom: 16px; }
+        .settings-row label { display: block; font-size: 13px; font-weight: 500; color: #1e293b; margin-bottom: 6px; }
+        select, input { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 14px; background: white; cursor: pointer; }
+        
+        .mode-buttons { display: flex; gap: 12px; margin-bottom: 20px; }
+        .mode-btn { flex: 1; text-align: center; padding: 10px; background: #f1f5f9; border-radius: 12px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; border: 1px solid transparent; }
+        .mode-btn.active { background: #059669; color: white; border-color: #059669; }
+        
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 10px; }
+        .btn-primary { background: #059669; color: white; }
+        .btn-primary:hover:not(:disabled) { background: #047857; transform: translateY(-1px); }
+        .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+        .btn-secondary { background: #e2e8f0; color: #1e293b; }
+        .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+        
+        .progress-container { margin: 16px 0; display: none; }
+        .progress-bar { background: #e2e8f0; border-radius: 20px; height: 8px; overflow: hidden; }
+        .progress-fill { background: #059669; width: 0%; height: 100%; transition: width 0.3s; }
+        .progress-text { font-size: 11px; color: #64748b; text-align: center; margin-top: 6px; }
+        
+        .results-area { background: #f8fafc; border-radius: 12px; padding: 8px; max-height: 250px; overflow-y: auto; }
+        .result-item { padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 12px; cursor: pointer; transition: background 0.1s; }
+        .result-item:hover { background: #f0fdf4; }
+        .result-success { border-left: 3px solid #059669; padding-left: 10px; }
+        .result-error { border-left: 3px solid #dc2626; padding-left: 10px; }
+        .badge { display: inline-block; background: #e2e8f0; padding: 2px 8px; border-radius: 20px; font-size: 10px; margin-left: 8px; }
+        
+        .point-card { background: linear-gradient(135deg, #059669, #047857); border-radius: 16px; padding: 16px; margin-bottom: 20px; color: white; }
+        .point-card h4 { font-size: 14px; margin-bottom: 6px; word-break: break-word; }
+        .point-card p { font-size: 11px; opacity: 0.9; }
+        
+        .search-box { display: flex; gap: 8px; margin-bottom: 12px; }
+        .search-box input { flex: 1; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 13px; outline: none; }
+        .search-box input:focus { border-color: #059669; box-shadow: 0 0 0 2px rgba(5,150,105,0.1); }
+        .search-box button { padding: 0 16px; background: #059669; color: white; border: none; border-radius: 12px; cursor: pointer; }
+        .search-results { max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 12px; display: none; margin-top: 8px; background: white; }
+        .search-results.active { display: block; }
+        .search-result-item { padding: 10px; border-bottom: 1px solid #eef2f6; cursor: pointer; font-size: 12px; }
+        .search-result-item:hover { background: #f0fdf4; }
+        
+        .points-list { max-height: 120px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 12px; margin-top: 8px; font-size: 12px; }
+        .point-item { padding: 8px 12px; border-bottom: 1px solid #eef2f6; display: flex; justify-content: space-between; align-items: center; }
+        .point-item:last-child { border-bottom: none; }
+        .point-item button { background: none; border: none; color: #dc2626; cursor: pointer; }
+        
+        .status-bar { background: #1e293b; color: white; padding: 10px 16px; font-size: 12px; display: flex; align-items: center; gap: 10px; }
+        .right-controls { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; z-index: 100; }
+        .control-btn { width: 44px; height: 44px; background: white; border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer; font-size: 18px; transition: all 0.2s; }
+        .control-btn:hover { background: #f1f5f9; transform: scale(1.05); }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+         /* Подсветка ближайших маршрутов */
+        .result-nearest {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+        }
+        .result-nearest:hover {
+            background: #fde68a;
+        }
+        .nearest-badge {
+            display: inline-block;
+            background: #f59e0b;
+            color: #000000;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 20px;
+            margin-left: 8px;
+        }
+        .distance-info {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        
+        /* Стили для статистики */
+        .stats-grid {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            flex: 1;
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="panel">
+        <div style="padding: 20px; background: #059669; color: white;">
+            <h3><i class="fas fa-route"></i> Калькулятор расстояний POKOV y LYALY</h3>
+            <p style="font-size: 12px; opacity: 0.9;">Матрица маршрутов | OSRM | Excel</p>
+        </div>
+
+        <!-- Карточка выбранной точки -->
+        <div class="section" style="background: #f0fdf4;">
+            <div class="point-card" id="pointCard">
+                <h4><i class="fas fa-map-pin"></i> <span id="pointName">Не выбрана</span></h4>
+                <p id="pointCoords">Кликните на карту для выбора</p>
+            </div>
+            
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Поиск города или улицы..." autocomplete="off">
+                <button id="searchBtn"><i class="fas fa-search"></i></button>
+            </div>
+            <div id="searchResults" class="search-results"></div>
+        </div>
+
+        <!-- Загрузка файлов -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-file-excel"></i> Исходные данные</div>
+            <div class="file-area" onclick="document.getElementById('fromFile').click()">
+                <i class="fas fa-upload"></i>
+                <p>Файл "Откуда" (Excel)</p>
+                <div class="file-name" id="fromFileName"></div>
+            </div>
+            <input type="file" id="fromFile" accept=".xlsx,.xls">
+            
+            <div class="file-area" onclick="document.getElementById('toFile').click()">
+                <i class="fas fa-upload"></i>
+                <p>Файл "Куда" (Excel)</p>
+                <div class="file-name" id="toFileName"></div>
+            </div>
+            <input type="file" id="toFile" accept=".xlsx,.xls">
+            
+        </div>
+
+        <!-- Ручное добавление точек -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-plus-circle"></i> Ручное добавление</div>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <input type="text" id="manualName" placeholder="Название" style="flex:2; padding: 8px; border:1px solid #cbd5e1; border-radius: 10px;">
+                <input type="text" id="manualLon" placeholder="Долгота" style="flex:1; padding: 8px; border:1px solid #cbd5e1; border-radius: 10px;">
+                <input type="text" id="manualLat" placeholder="Широта" style="flex:1; padding: 8px; border:1px solid #cbd5e1; border-radius: 10px;">
+                <button id="addManualBtn" style="background:#059669; color:white; border:none; border-radius:10px; padding:0 16px;"><i class="fas fa-plus"></i></button>
+            </div>
+            
+            <!-- Кнопка очистки всех точек -->
+            <button id="clearAllPointsBtn" style="width:100%; margin-top:10px; padding:8px; background:#6b7280; color:white; border:none; border-radius:10px; cursor:pointer; font-size:13px;">
+                <i class="fas fa-trash-alt"></i> Очистить все точки
+            </button>
+            
+            <div class="section-title" style="margin-top: 12px;"><i class="fas fa-list"></i> Точки "Откуда" <span id="fromCount" class="badge">0</span></div>
+            <div id="pointsFromList" class="points-list"><div style="padding: 12px; text-align: center; color: #94a3b8;">Нет точек</div></div>
+            <div class="section-title" style="margin-top: 12px;"><i class="fas fa-map-marker-alt"></i> Точки "Куда" <span id="toCount" class="badge">0</span></div>
+            <div id="pointsToList" class="points-list"><div style="padding: 12px; text-align: center; color: #94a3b8;">Нет точек</div></div>
+        </div>
+
+        <!-- Настройки расчета -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-sliders-h"></i> Настройки</div>
+            
+            <div class="mode-buttons">
+                <div class="mode-btn active" data-mode="matrix">📊 Матрица</div>
+                <div class="mode-btn" data-mode="nearest">🎯 Ближайшие</div>
+            </div>
+            
+            <div class="settings-row" id="nearestRow" style="display: none;">
+                <label>Количество ближайших на точку</label>
+                <input type="number" id="nearestCount" value="1" min="1" max="50">
+            </div>
+            
+            <div class="settings-row">
+                <label><i class="fas fa-car"></i> Транспорт</label>
+                <select id="vehicle">
+                    <option value="driving">🚗 Автомобиль</option>
+                    <option value="walking">🚶 Пешком</option>
+                    <option value="bike">🚲 Велосипед</option>
+                </select>
+            </div>
+            
+            <div class="settings-row">
+                <label><i class="fas fa-clock"></i> Задержка (мс)</label>
+                <select id="delaySelect">
+                    <option value="100">100 мс</option>
+                    <option value="200" selected>200 мс</option>
+                    <option value="500">500 мс</option>
+                </select>
+            </div>
+            
+            <button class="btn btn-primary" id="calcBtn"><i class="fas fa-play"></i> НАЧАТЬ РАСЧЕТ</button>
+            <button class="btn btn-secondary" id="exportBtn" disabled><i class="fas fa-download"></i> ЭКСПОРТ В EXCEL</button>
+        </div>
+
+        <!-- Прогресс -->
+        <div class="section" id="progressSection" style="display: none;">
+            <div class="progress-container" style="display: block;">
+                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                <div class="progress-text" id="progressMsg">Готов</div>
+            </div>
+        </div>
+
+        <!-- Статистика -->
+        <div class="section" id="statsSection" style="display: none;">
+            <div class="section-title"><i class="fas fa-chart-bar"></i> Статистика</div>
+            <div class="stats-grid">
+                <div class="stat-card" style="background: #f0fdf4;"><div class="stat-number" style="color: #059669;" id="totalRoutes">0</div><div class="stat-label">Всего маршрутов</div></div>
+                <div class="stat-card" style="background: #eff6ff;"><div class="stat-number" style="color: #3b82f6;" id="avgDistance">0</div><div class="stat-label">Среднее км</div></div>
+                <div class="stat-card" style="background: #fef2f2;"><div class="stat-number" style="color: #ef4444;" id="maxDistance">0</div><div class="stat-label">Макс. км</div></div>
+                <div class="stat-card" style="background: #fef3c7;"><div class="stat-number" style="color: #f59e0b;" id="minDistance">0</div><div class="stat-label">Мин. км</div></div>
+            </div>
+            <div style="background: #f8fafc; border-radius: 12px; padding: 12px;">
+                <canvas id="distanceChart" width="400" height="180" style="width:100%; max-height: 180px;"></canvas>
+            </div>
+            <div id="topDestinations" style="margin-top: 10px; font-size: 11px; color: #64748b; text-align: center;"></div>
+        </div>
+
+        
+
+        <!-- Результаты -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-list"></i> Результаты <span id="resultsBadge" class="badge">0</span></div>
+            <div class="results-area" id="resultsList">
+                <div style="text-align: center; color: #94a3b8; padding: 20px;">
+                    <i class="fas fa-info-circle"></i><br>
+                    Загрузите данные и нажмите "Начать расчет"
+                </div>
+            </div>
+        </div>
+
+        
+
+        <div class="status-bar">
+            <i class="fas fa-circle" style="font-size: 8px; color: #10b981;"></i>
+            <span id="statusMsg">Готов к работе</span>
+        </div>
+    </div>
+
+    <div class="map-container">
+        <div id="map"></div>
+        <div class="right-controls">
+            <button class="control-btn" id="locateBtn" title="Моё местоположение"><i class="fas fa-location-dot"></i></button>
+            <button class="control-btn" id="fitBoundsBtn" title="Показать все"><i class="fas fa-arrows-alt"></i></button>
+            <button class="control-btn" id="clearRoutesBtn" title="Очистить маршруты"><i class="fas fa-trash-alt"></i></button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+    let map;
+    let pointsFrom = [];
+    let pointsTo = [];
+    let results = [];
+    let routeLayers = [];
+    let routeSources = [];
+    let selectedPoint = null;
+    let currentMarker = null;
+    let isCalculating = false;
+    let calculationMode = 'matrix';
+    let highlightLayer = null;
+    let highlightSource = null;
+    let fromMarkers = [];
+    let toMarkers = [];
+    let distanceChart = null;
+    
+    // ========== ИНИЦИАЛИЗАЦИЯ КАРТЫ (БРЯНСК) ==========
+    function initMap() {
+        map = new maplibregl.Map({
+            container: 'map',
+            style: 'https://tiles.openfreemap.org/styles/bright',
+            center: [34.35, 53.25],
+            zoom: 12
+        });
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+        
+        map.on('click', (e) => {
+            const { lng, lat } = e.lngLat;
+            
+            // Очищаем подсветку маршрута при клике на карту
+            if (highlightLayer) { 
+                try { 
+                    if (map.getLayer(highlightLayer)) map.removeLayer(highlightLayer);
+                    if (map.getSource(highlightSource)) map.removeSource(highlightSource);
+                } catch(e) {} 
+                highlightLayer = null; 
+                highlightSource = null; 
+            }
+            
+            setSelectedPoint(lng, lat);
+        });
+        
+        map.on('load', () => {
+            updateStatus('Карта загружена');
+        });
+    }
+    
+    // ========== ВЫБОР ТОЧКИ НА КАРТЕ С ПОЛНЫМ АДРЕСОМ ==========
+    async function setSelectedPoint(lng, lat, customName = null) {
+        let fullAddress = customName;
+        let shortName = customName;
+        
+        if (!fullAddress) {
+            try {
+                const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ru`);
+                const data = await resp.json();
+                
+                if (data && data.display_name) {
+                    // Полный адрес для отображения в карточке
+                    fullAddress = data.display_name;
+                    
+                    // Короткое имя для кнопок (чтобы не загромождать)
+                    const addr = data.address;
+                    let short = '';
+                    if (addr.road) short += addr.road;
+                    if (addr.house_number) short += `, ${addr.house_number}`;
+                    if (!short && addr.suburb) short = addr.suburb;
+                    if (!short && addr.village) short = addr.village;
+                    if (!short && addr.town) short = addr.town;
+                    if (!short && addr.city) short = addr.city;
+                    if (data.name && !short.includes(data.name)) {
+                        short = short ? `${data.name}, ${short}` : data.name;
+                    }
+                    shortName = short || fullAddress.split(',')[0];
+                } else {
+                    fullAddress = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                    shortName = fullAddress;
+                }
+            } catch(e) { 
+                fullAddress = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                shortName = fullAddress;
+            }
+        }
+        
+        selectedPoint = { lng, lat, name: fullAddress, shortName: shortName };
+        
+        const pointCard = document.getElementById('pointCard');
+        pointCard.innerHTML = `
+            <h4><i class="fas fa-map-pin"></i> Выбранная точка</h4>
+            <p style="font-size: 12px; word-break: break-word;"><strong>${escapeHtml(shortName)}</strong></p>
+            <p style="font-size: 10px; opacity: 0.85; word-break: break-word;">${escapeHtml(fullAddress)}</p>
+            <div style="display: flex; gap: 10px; margin-top: 12px;">
+                <button id="addToFromBtn" style="flex:1; background: #059669; color: white; border: none; border-radius: 8px; padding: 8px; cursor: pointer; font-size: 12px;">
+                    <i class="fas fa-plus-circle"></i> В Откуда
+                </button>
+                <button id="addToToBtn" style="flex:1; background: #3b82f6; color: white; border: none; border-radius: 8px; padding: 8px; cursor: pointer; font-size: 12px;">
+                    <i class="fas fa-plus-circle"></i> В Куда
+                </button>
+            </div>
+        `;
+        
+        document.getElementById('addToFromBtn').onclick = () => {
+            pointsFrom.push({ name: shortName, fullAddress: fullAddress, lon: selectedPoint.lng, lat: selectedPoint.lat });
+            updateFromList();
+            fitBoundsToAllPoints();  // приближаем карту
+            updateStatus(`Добавлено в Откуда: ${shortName}`);
+        };
+        
+        document.getElementById('addToToBtn').onclick = () => {
+            pointsTo.push({ name: shortName, fullAddress: fullAddress, lon: selectedPoint.lng, lat: selectedPoint.lat });
+            updateToList();
+            fitBoundsToAllPoints();  // приближаем карту
+            updateStatus(`Добавлено в Куда: ${shortName}`);
+        };
+        
+        if (currentMarker) currentMarker.remove();
+        const markerEl = document.createElement('div');
+        markerEl.innerHTML = `<div style="background:#059669; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.2);"><i class="fas fa-map-pin"></i></div>`;
+        currentMarker = new maplibregl.Marker({ element: markerEl }).setLngLat([lng, lat]).addTo(map);
+        updateStatus(`Выбрана точка: ${shortName}`);
+    }
+    
+    // ========== ПОИСК АДРЕСОВ ==========
+    async function searchAddress(query) {
+        if (query.length < 3) return [];
+        try {
+            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&addressdetails=1&accept-language=ru&countrycodes=ru`);
+            const data = await resp.json();
+            return data.map(item => ({ name: item.display_name.split(',')[0], address: item.display_name, lat: parseFloat(item.lat), lon: parseFloat(item.lon) }));
+        } catch { return []; }
+    }
+    
+    function setupSearch() {
+        const searchInput = document.getElementById('searchInput');
+        const searchResults = document.getElementById('searchResults');
+        let timeout;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(timeout);
+            const q = searchInput.value.trim();
+            if (q.length < 3) { searchResults.classList.remove('active'); return; }
+            timeout = setTimeout(async () => {
+                const items = await searchAddress(q);
+                if (!items.length) { searchResults.innerHTML = '<div class="search-result-item">Ничего не найдено</div>'; searchResults.classList.add('active'); return; }
+                searchResults.innerHTML = items.map(r => `<div class="search-result-item" onclick="selectSearchResult(${r.lon}, ${r.lat}, '${escapeHtml(r.name)}')">
+                    <div><strong>${escapeHtml(r.name)}</strong></div>
+                    <div style="font-size: 10px; color: #64748b;">${escapeHtml(r.address)}</div>
+                </div>`).join('');
+                searchResults.classList.add('active');
+            }, 300);
+        });
+        document.addEventListener('click', (e) => { if (!searchResults.contains(e.target) && e.target !== searchInput) searchResults.classList.remove('active'); });
+    }
+    
+    window.selectSearchResult = function(lng, lat, name) {
+        document.getElementById('searchResults').classList.remove('active');
+        document.getElementById('searchInput').value = '';
+        map.flyTo({ center: [lng, lat], zoom: 16 });
+        setSelectedPoint(lng, lat, name);
+    };
+    
+    // ========== РАБОТА С EXCEL ==========
+    function parseExcel(file, type) {
+            // При загрузке нового файла, если пользователь хочет заменить, а не добавить
+            // Можно спросить или просто очистить старые точки этого типа
+            if (type === 'from') {
+                // Очищаем старые точки "Откуда" перед загрузкой новых
+                pointsFrom = [];
+            } else {
+                // Очищаем старые точки "Куда" перед загрузкой новых
+                pointsTo = [];
+            }
+            
+            const reader = new FileReader();
+        reader.onload = function(e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet);
+            const points = [];
+            for (const row of rows) {
+                const name = row['Наименование'] || Object.values(row)[0];
+                const lon = parseFloat(row['Координата X'] || Object.values(row)[1]);
+                const lat = parseFloat(row['Координата Y'] || Object.values(row)[2]);
+                if (name && !isNaN(lon) && !isNaN(lat)) {
+                    points.push({ name: String(name), lon, lat });
+                }
+            }
+            if (type === 'from') {
+                pointsFrom = points;
+                updateFromList();
+            } else {
+                pointsTo = points;
+                updateToList();
+            }
+            updateStatus(`Загружено ${points.length} точек (${type === 'from' ? 'Откуда' : 'Куда'})`);
+            document.getElementById(`${type}FileName`).innerText = file.name;
+            updateReadyStatus();
+            
+            // Автоматическое приближение после загрузки
+            setTimeout(() => fitBoundsToAllPoints(), 100);
+        };
+        reader.readAsArrayBuffer(file);
+    }
+    
+    function showPreview(divId, points, title) {
+        const div = document.getElementById(divId);
+        if (!points.length) { div.style.display = 'none'; return; }
+        let html = `<div style="font-weight:600; padding:8px;">${title} (${points.length})</div><tr><thead><tr><th>#</th><th>Название</th><th>Долгота</th><th>Широта</th></tr></thead><tbody>`;
+        points.slice(0, 8).forEach((p, i) => {
+            html += `<tr><td>${i+1}</td><td>${escapeHtml(p.name)}</td><td>${p.lon.toFixed(4)}</td><td>${p.lat.toFixed(4)}</td></tr>`;
+        });
+        if (points.length > 8) html += `<tr><td colspan="4">... и ещё ${points.length-8}</td></tr>`;
+        html += `</tbody></table>`;
+        div.innerHTML = html;
+        div.style.display = 'block';
+    }
+    
+    document.getElementById('fromFile').addEventListener('change', e => { if(e.target.files[0]) parseExcel(e.target.files[0], 'from'); });
+    document.getElementById('toFile').addEventListener('change', e => { if(e.target.files[0]) parseExcel(e.target.files[0], 'to'); });
+    
+    // ========== РУЧНОЕ ДОБАВЛЕНИЕ ==========
+    document.getElementById('addManualBtn').addEventListener('click', () => {
+        const name = document.getElementById('manualName').value.trim();
+        const lon = parseFloat(document.getElementById('manualLon').value);
+        const lat = parseFloat(document.getElementById('manualLat').value);
+        if (!name || isNaN(lon) || isNaN(lat)) { updateStatus('Заполните название и координаты', true); return; }
+        pointsFrom.push({ name, lon, lat, fullAddress: name });
+        updateFromList();
+        fitBoundsToAllPoints();  // приближаем карту
+        document.getElementById('manualName').value = '';
+        document.getElementById('manualLon').value = '';
+        document.getElementById('manualLat').value = '';
+        updateStatus(`Добавлена точка: ${name}`);
+    });
+    
+    function updateFromList() {
+        const container = document.getElementById('pointsFromList');
+        document.getElementById('fromCount').innerText = pointsFrom.length;
+        if (!pointsFrom.length) { 
+            container.innerHTML = '<div style="padding: 12px; text-align: center; color: #94a3b8;">Нет точек</div>'; 
+            updateFromMarkers();
+            return; 
+        }
+        let html = '';
+        pointsFrom.forEach((p, idx) => {
+            const displayName = p.fullAddress ? p.fullAddress.split(',')[0] : p.name;
+            const tooltip = p.fullAddress || p.name;
+            html += `<div class="point-item" title="${escapeHtml(tooltip)}">
+                        <div>
+                            <strong>${escapeHtml(displayName)}</strong>
+                            <br><span style="font-size: 10px;">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span>
+                        </div>
+                        <button onclick="removeFromPoint(${idx})"><i class="fas fa-trash"></i></button>
+                     </div>`;
+        });
+        container.innerHTML = html;
+        updateFromMarkers();
+        updateReadyStatus();
+    }
+    
+    function updateToList() {
+        const container = document.getElementById('pointsToList');
+        const badge = document.getElementById('toCount');
+        if (container) {
+            if (badge) badge.innerText = pointsTo.length;
+            if (!pointsTo.length) { 
+                container.innerHTML = '<div style="padding: 12px; text-align: center; color: #94a3b8;">Нет точек</div>'; 
+                updateToMarkers();
+                return; 
+            }
+            let html = '';
+            pointsTo.forEach((p, idx) => {
+                const displayName = p.fullAddress ? p.fullAddress.split(',')[0] : p.name;
+                const tooltip = p.fullAddress || p.name;
+                html += `<div class="point-item" title="${escapeHtml(tooltip)}">
+                            <div>
+                                <strong>${escapeHtml(displayName)}</strong>
+                                <br><span style="font-size: 10px;">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span>
+                            </div>
+                            <button onclick="removeToPoint(${idx})"><i class="fas fa-trash"></i></button>
+                         </div>`;
+            });
+            container.innerHTML = html;
+            updateToMarkers();
+        }
+        updateReadyStatus();
+    }
+    
+    window.removeFromPoint = (idx) => { 
+        pointsFrom.splice(idx, 1); 
+        updateFromList(); 
+        updateStatus('Точка удалена из "Откуда"');
+    };
+    
+    window.removeToPoint = (idx) => { 
+        pointsTo.splice(idx, 1); 
+        updateToList(); 
+        updateStatus('Точка удалена из "Куда"');
+    };
+    
+    function updateReadyStatus() {
+        const targets = pointsTo.length ? pointsTo : pointsFrom;
+        const total = pointsFrom.length * targets.length;
+        if (pointsFrom.length && (pointsTo.length || calculationMode === 'nearest')) {
+            updateStatus(`Готов: ${pointsFrom.length} → ${pointsTo.length || pointsFrom.length} = ${total} маршрутов`);
+        }
+    }
+    
+    // ========== РЕЖИМЫ ==========
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            calculationMode = btn.dataset.mode;
+            document.getElementById('nearestRow').style.display = calculationMode === 'nearest' ? 'block' : 'none';
+            updateReadyStatus();
+        });
+    });
+    
+    // ========== OSRM ЗАПРОС ==========
+    async function fetchRoute(lon1, lat1, lon2, lat2, vehicle) {
+        const url = `https://router.project-osrm.org/route/v1/${vehicle}/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+        try {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 25000);
+            const resp = await fetch(url, { signal: controller.signal });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            if (data.code === 'Ok' && data.routes && data.routes[0]) {
+                const route = data.routes[0];
+                return {
+                    distanceKm: route.distance / 1000,
+                    durationMin: route.duration / 60,
+                    geometry: route.geometry.coordinates
+                };
+            }
+            return null;
+        } catch { return null; }
+    }
+    
+    // ========== ОТРИСОВКА МАРШРУТОВ ==========
+    function clearMapRoutes() {
+        routeSources.forEach(src => { try { if (map.getLayer(src)) map.removeLayer(src); if (map.getSource(src)) map.removeSource(src); } catch(e) {} });
+        routeLayers.forEach(layer => { try { if (map.getLayer(layer)) map.removeLayer(layer); } catch(e) {} });
+        routeSources = [];
+        routeLayers = [];
+    }
+    
+    function drawSingleRoute(geometry, color = '#059669', width = 4) {
+        if (!geometry || geometry.length < 2) return null;
+        const sourceId = `route_${Date.now()}_${Math.random()}`;
+        const layerId = `layer_${sourceId}`;
+        map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: geometry } } });
+        map.addLayer({ id: layerId, type: 'line', source: sourceId, paint: { 'line-color': color, 'line-width': width, 'line-opacity': 0.8 } });
+        routeSources.push(sourceId);
+        routeLayers.push(layerId);
+        return { sourceId, layerId };
+    }
+    
+    // ========== ПОДСВЕТКА МАРШРУТА И ПРИБЛИЖЕНИЕ К ТРЕКУ ==========
+    function highlightRoute(geometry, fromCoord, toCoord) {
+        // Убираем предыдущую подсветку, если есть
+        if (highlightLayer) { 
+            try { 
+                if (map.getLayer(highlightLayer)) map.removeLayer(highlightLayer);
+                if (map.getSource(highlightSource)) map.removeSource(highlightSource);
+            } catch(e) {} 
+            highlightLayer = null; 
+            highlightSource = null; 
+        }
+        
+        if (!geometry || geometry.length < 2) return;
+        
+        // Создаем подсветку маршрута
+        const sourceId = `highlight_${Date.now()}`;
+        const layerId = `highlight_layer_${Date.now()}`;
+        map.addSource(sourceId, { 
+            type: 'geojson', 
+            data: { 
+                type: 'Feature', 
+                geometry: { 
+                    type: 'LineString', 
+                    coordinates: geometry 
+                } 
+            } 
+        });
+        map.addLayer({ 
+            id: layerId, 
+            type: 'line', 
+            source: sourceId, 
+            paint: { 
+                'line-color': '#2563eb', 
+                'line-width': 8, 
+                'line-opacity': 0.95,
+                'line-blur': 0
+            } 
+        });
+        highlightLayer = layerId;
+        highlightSource = sourceId;
+        
+        // Приближаем карту к треку (ко всем точкам маршрута)
+        if (geometry && geometry.length > 0) {
+            const bounds = new maplibregl.LngLatBounds();
+            geometry.forEach(coord => {
+                bounds.extend([coord[0], coord[1]]);
+            });
+            // Добавляем также точки начала и конца для надежности
+            if (fromCoord) bounds.extend([fromCoord[0], fromCoord[1]]);
+            if (toCoord) bounds.extend([toCoord[0], toCoord[1]]);
+            
+            if (!bounds.isEmpty()) {
+                map.fitBounds(bounds, { padding: 80, duration: 1000 });
+                updateStatus(`📍 Приближено к маршруту: ${geometry.length} точек`);
+            }
+        }
+    }
+    
+    // ========== ОСНОВНОЙ РАСЧЕТ ==========
+    document.getElementById('calcBtn').addEventListener('click', async () => {
+        if (isCalculating) { updateStatus('Расчет уже выполняется...'); return; }
+        if (!pointsFrom.length) { updateStatus('Нет точек "Откуда"', true); return; }
+        
+        let targets = pointsTo.length ? pointsTo : pointsFrom;
+        if (calculationMode === 'matrix' && !targets.length) { updateStatus('Нет точек "Куда"', true); return; }
+        if (calculationMode === 'nearest' && !targets.length) { updateStatus('Для режима "Ближайшие" нужны точки "Куда"', true); return; }
+        
+        isCalculating = true;
+        const calcBtn = document.getElementById('calcBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        calcBtn.disabled = true;
+        exportBtn.disabled = true;
+        document.getElementById('progressSection').style.display = 'block';
+        const progressFill = document.getElementById('progressFill');
+        const progressMsg = document.getElementById('progressMsg');
+        const vehicle = document.getElementById('vehicle').value;
+        const delayMs = parseInt(document.getElementById('delaySelect').value);
+        const nearestK = parseInt(document.getElementById('nearestCount').value);
+        
+        results = [];
+        clearMapRoutes();
+        
+        if (calculationMode === 'matrix') {
+            const total = pointsFrom.length * targets.length;
+            let completed = 0;
+            for (const from of pointsFrom) {
+                for (const to of targets) {
+                    const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    completed++;
+                    const percent = (completed / total) * 100;
+                    progressFill.style.width = `${percent}%`;
+                    progressMsg.innerText = `${completed}/${total} маршрутов`;
+                    
+                    if (route) {
+                        results.push({ from: from.name, to: to.name, distance: route.distanceKm, duration: route.durationMin, status: 'OK', fromCoord: [from.lon, from.lat], toCoord: [to.lon, to.lat], geometry: route.geometry });
+                        drawSingleRoute(route.geometry, '#059669', 3);
+                    } else {
+                        results.push({ from: from.name, to: to.name, status: 'Ошибка' });
+                    }
+                    if (completed < total) await new Promise(r => setTimeout(r, delayMs));
+                }
+            }
+        } else {
+            let completed = 0;
+            for (const from of pointsFrom) {
+                const distances = [];
+                for (const to of targets) {
+                    const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    if (route) distances.push({ to, distance: route.distanceKm, duration: route.durationMin, geometry: route.geometry });
+                    await new Promise(r => setTimeout(r, delayMs / 2));
+                }
+                distances.sort((a,b) => a.distance - b.distance);
+                const nearest = distances.slice(0, nearestK);
+                for (const n of nearest) {
+                    results.push({ from: from.name, to: n.to.name, distance: n.distance, duration: n.duration, status: 'OK', fromCoord: [from.lon, from.lat], toCoord: [n.to.lon, n.to.lat], geometry: n.geometry });
+                    drawSingleRoute(n.geometry, '#059669', 3);
+                }
+                completed++;
+                const percent = (completed / pointsFrom.length) * 100;
+                progressFill.style.width = `${percent}%`;
+                progressMsg.innerText = `Обработано ${completed}/${pointsFrom.length} исходных точек (найдено ${results.length} маршрутов)`;
+            }
+        }
+        
+        // Обновляем список результатов - ВСЕ маршруты, ближайшие подсвечены
+        const resultsContainer = document.getElementById('resultsList');
+        document.getElementById('resultsBadge').innerText = results.length;
+        if (!results.length) {
+            resultsContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет результатов</div>';
+        } else {
+            // Для КАЖДОЙ точки "Откуда" находим ближайший маршрут
+            const nearestMapForDisplay = new Map();
+            if (calculationMode === 'matrix') {
+                const routesByFrom = new Map();
+                results.forEach((r, idx) => {
+                    if (r.status === 'OK') {
+                        const from = r.from;
+                        if (!routesByFrom.has(from)) routesByFrom.set(from, []);
+                        routesByFrom.get(from).push({ index: idx, distance: r.distance });
+                    }
+                });
+                routesByFrom.forEach((routes, from) => {
+                    let minDist = Infinity, minIndex = -1;
+                    routes.forEach(route => {
+                        if (route.distance < minDist) {
+                            minDist = route.distance;
+                            minIndex = route.index;
+                        }
+                    });
+                    if (minIndex !== -1) nearestMapForDisplay.set(from, minIndex);
+                });
+            }
+            
+            resultsContainer.innerHTML = results.map((r, idx) => {
+                if (r.status === 'OK') {
+                    const isNearest = nearestMapForDisplay.has(r.from) && nearestMapForDisplay.get(r.from) === idx;
+                    const nearestClass = isNearest ? 'result-nearest' : '';
+                    const nearestBadge = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
+                    
+                    return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                                <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
+                                ${nearestBadge}
+                                <div class="distance-info">📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин</div>
+                            </div>`;
+                } else {
+                    return `<div class="result-item result-error">❌ ${escapeHtml(r.from)} → ${escapeHtml(r.to)}: ${r.status}</div>`;
+                }
+            }).join('');
+        }
+
+        if (results.length) {
+            const bounds = new maplibregl.LngLatBounds();
+            pointsFrom.forEach(p => bounds.extend([p.lon, p.lat]));
+            targets.forEach(t => bounds.extend([t.lon, t.lat]));
+            if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 50 });
+        }
+
+                // Обновляем статистику
+        updateStatistics();
+        
+        exportBtn.disabled = false;
+        calcBtn.disabled = false;
+        isCalculating = false;
+        updateStatus(`✅ Расчет завершен: ${results.filter(r => r.status === 'OK').length} маршрутов`);
+        document.getElementById('progressSection').style.display = 'none';
+    });
+    
+    window.highlightRoute = highlightRoute;
+    
+
+    // ========== ЭКСПОРТ В EXCEL (HTML .XLS - БЕЗ ПРЕДУПРЕЖДЕНИЙ) ==========
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        if (!results.length) { updateStatus('Нет данных для экспорта', true); return; }
+        
+        // Находим ближайшие маршруты для каждого "Откуда"
+        const nearestMap = new Map();
+        if (calculationMode === 'matrix') {
+            results.forEach((r, idx) => {
+                if (r.status === 'OK') {
+                    const from = r.from;
+                    const dist = r.distance;
+                    if (!nearestMap.has(from) || dist < nearestMap.get(from).distance) {
+                        nearestMap.set(from, { index: idx, distance: dist });
+                    }
+                }
+            });
+        }
+        
+        // Создаем HTML таблицу с форматированием
+        let htmlTable = `<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Расстояния между точками</title>
+            <style>
+                body { font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; }
+                h2 { color: #059669; margin-bottom: 10px; }
+                .info { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+                table { border-collapse: collapse; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                th { 
+                    background-color: #059669; 
+                    color: white; 
+                    padding: 12px; 
+                    font-weight: bold; 
+                    border: 1px solid #047857;
+                    text-align: center;
+                }
+                td { 
+                    padding: 8px 12px; 
+                    border: 1px solid #ddd; 
+                    text-align: left;
+                }
+                tr:nth-child(even) { background-color: #f9fafb; }
+                tr.nearest { background-color: #fef3c7 !important; }
+                tr.nearest:hover { background-color: #fde68a !important; }
+                tr:hover { background-color: #f0fdf4; }
+                .distance-cell, .time-cell { text-align: right; }
+                .badge {
+                    display: inline-block;
+                    background: #f59e0b;
+                    color: #000000;
+                    font-size: 10px;
+                    padding: 2px 8px;
+                    border-radius: 12px;
+                    font-weight: bold;
+                }
+                .footer {
+                    margin-top: 20px;
+                    font-size: 11px;
+                    color: #94a3b8;
+                    text-align: center;
+                    border-top: 1px solid #e2e8f0;
+                    padding-top: 15px;
+                }
+            </style>
+        </head>
+        <body>
+            <h2>📊 Результаты расчета расстояний</h2>
+            <div class="info">
+                📅 Дата: ${new Date().toLocaleString('ru-RU')} | 
+                🚗 Транспорт: ${document.getElementById('vehicle').options[document.getElementById('vehicle').selectedIndex]?.text || 'Автомобиль'} |
+                📋 Всего маршрутов: ${results.length} | 
+                ⭐ Ближайшие маршруты выделены желтым
+            </div>
+            <table cellpadding="5" cellspacing="0" border="1">
+                <thead>
+                    <tr>
+                        <th>№</th>
+                        <th>Откуда</th>
+                        <th>Куда</th>
+                        <th>Расстояние (км)</th>
+                        <th>Время (мин)</th>
+                        <th>Ближайший</th>
+                        <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        
+        // Добавляем строки с данными
+        results.forEach((r, idx) => {
+            const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from).index === idx;
+            const rowClass = isNearest && r.status === 'OK' ? 'nearest' : '';
+            const nearestBadge = isNearest && r.status === 'OK' ? '<span class="badge">⭐ Ближайший</span>' : '';
+            
+            htmlTable += `<tr class="${rowClass}">
+                <td style="text-align: center;">${idx + 1}</td>
+                <td>${escapeHtml(r.from)}</td>
+                <td>${escapeHtml(r.to)}</td>
+                <td class="distance-cell">${r.distance ? r.distance.toFixed(2) : '—'}</td>
+                <td class="time-cell">${r.duration ? Math.round(r.duration) : '—'}</td>
+                <td style="text-align: center;">${nearestBadge}</td>
+                <td>${r.status === 'OK' ? '✅ Успешно' : '❌ ' + escapeHtml(r.status)}</td>
+             </tr>`;
+        });
+        
+        htmlTable += `
+                </tbody>
+            </table>
+            <div class="footer">
+                © Калькулятор расстояний OSRM | Данные получены через OpenStreetMap Routing Machine<br>
+                ⭐ Желтым цветом выделены ближайшие маршруты для каждой точки "Откуда"
+            </div>
+        </body>
+        </html>`;
+        
+        // Сохраняем как .xls (Excel открывает HTML без предупреждений)
+        const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = `расстояния_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.xls`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        updateStatus(`✅ Экспортировано ${results.length} маршрутов в Excel (ближайшие выделены желтым)`);
+    });
+    
+    // ========== КНОПКИ ==========
+    document.getElementById('locateBtn').addEventListener('click', () => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(pos => {
+                map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14 });
+                setSelectedPoint(pos.coords.longitude, pos.coords.latitude, 'Моё местоположение');
+            }, () => updateStatus('❌ Не удалось определить местоположение', true));
+        }
+    });
+    document.getElementById('fitBoundsBtn').addEventListener('click', () => {
+        fitBoundsToAllPoints();
+    });
+    document.getElementById('clearRoutesBtn').addEventListener('click', () => {
+        clearMapRoutes();
+        updateStatus('Маршруты очищены');
+    });
+    
+    // ========== ВСПОМОГАТЕЛЬНЫЕ ==========
+    function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+    function updateStatus(msg, isErr = false) {
+        const span = document.getElementById('statusMsg');
+        const icon = document.querySelector('.status-bar i');
+        if (span) span.textContent = msg;
+        if (icon) icon.className = isErr ? 'fas fa-exclamation-triangle' : 'fas fa-circle';
+        console.log(msg);
+    }
+    // ========== ОЧИСТКА ВСЕХ ДАННЫХ ==========
+    document.getElementById('clearAllPointsBtn').addEventListener('click', () => {
+        const fromCount = pointsFrom.length;
+        const toCount = pointsTo.length;
+        const totalPoints = fromCount + toCount;
+        const hasResults = results.length > 0;
+        
+        // Очищаем массивы точек
+        pointsFrom = [];
+        pointsTo = [];
+        results = [];
+        
+        // Обновляем списки в интерфейсе
+        updateFromList();
+        updateToList();
+        
+        // Очищаем маршруты и маркеры с карты
+        clearMapRoutes();
+        
+        // Очищаем маркеры точек
+        fromMarkers.forEach(marker => marker.remove());
+        toMarkers.forEach(marker => marker.remove());
+        fromMarkers = [];
+        toMarkers = [];
+        
+        // Очищаем поля загрузки файлов
+        document.getElementById('fromFile').value = '';
+        document.getElementById('toFile').value = '';
+        document.getElementById('fromFileName').innerText = '';
+        document.getElementById('toFileName').innerText = '';
+        
+        // Скрываем таблицы предпросмотра
+        const previewFrom = document.getElementById('previewFrom');
+        const previewTo = document.getElementById('previewTo');
+        if (previewFrom) previewFrom.style.display = 'none';
+        if (previewTo) previewTo.style.display = 'none';
+        previewFrom.innerHTML = '';
+        previewTo.innerHTML = '';
+        
+        // Очищаем подсветку маршрута, если есть
+        if (highlightLayer) { 
+            try { 
+                if (map.getLayer(highlightLayer)) map.removeLayer(highlightLayer);
+                if (map.getSource(highlightSource)) map.removeSource(highlightSource);
+            } catch(e) {} 
+            highlightLayer = null; 
+            highlightSource = null; 
+        }
+        
+        // Очищаем результаты в интерфейсе
+        document.getElementById('resultsBadge').innerText = '0';
+        document.getElementById('resultsList').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;"><i class="fas fa-info-circle"></i><br>Загрузите данные и нажмите "Начать расчет"</div>';
+                // Скрываем статистику
+        const statsSection = document.getElementById('statsSection');
+        if (statsSection) statsSection.style.display = 'none';
+        if (distanceChart) {
+            distanceChart.destroy();
+            distanceChart = null;
+        }
+        // Сбрасываем статус
+        updateStatus(`✅ Очищено: Откуда (${fromCount} точек), Куда (${toCount} точек), Результатов (${hasResults ? results.length : 0})`);
+        
+        // Блокируем кнопку экспорта
+        document.getElementById('exportBtn').disabled = true;
+    });
+
+        // ========== УПРАВЛЕНИЕ МАРКЕРАМИ НА КАРТЕ ==========
+    
+    // Обновить маркеры "Откуда" на карте
+    function updateFromMarkers() {
+        // Удаляем старые маркеры
+        fromMarkers.forEach(marker => marker.remove());
+        fromMarkers = [];
+        
+        // Добавляем новые маркеры
+        pointsFrom.forEach(point => {
+            const markerEl = document.createElement('div');
+            markerEl.innerHTML = `
+                <div style="background: #059669; color: white; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border: 1px solid white;">
+                    <i class="fas fa-play"></i> ${escapeHtml(point.name.length > 20 ? point.name.slice(0,18)+'...' : point.name)}
+                </div>`;
+            markerEl.style.cursor = 'pointer';
+            markerEl.title = point.fullAddress || point.name;
+            
+            const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                .setLngLat([point.lon, point.lat])
+                .addTo(map);
+            fromMarkers.push(marker);
+        });
+    }
+    
+    // Обновить маркеры "Куда" на карте
+    function updateToMarkers() {
+        // Удаляем старые маркеры
+        toMarkers.forEach(marker => marker.remove());
+        toMarkers = [];
+        
+        // Добавляем новые маркеры
+        pointsTo.forEach(point => {
+            const markerEl = document.createElement('div');
+            markerEl.innerHTML = `
+                <div style="background: #3b82f6; color: white; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border: 1px solid white;">
+                    <i class="fas fa-flag-checkered"></i> ${escapeHtml(point.name.length > 20 ? point.name.slice(0,18)+'...' : point.name)}
+                </div>`;
+            markerEl.style.cursor = 'pointer';
+            markerEl.title = point.fullAddress || point.name;
+            
+            const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                .setLngLat([point.lon, point.lat])
+                .addTo(map);
+            toMarkers.push(marker);
+        });
+    }
+    
+    // Обновить все маркеры на карте
+    function updateAllMarkers() {
+        updateFromMarkers();
+        updateToMarkers();
+    }
+    
+    // Приблизить карту ко всем точкам
+    function fitBoundsToAllPoints() {
+        const allPoints = [...pointsFrom, ...pointsTo];
+        if (allPoints.length === 0) return;
+        
+        const bounds = new maplibregl.LngLatBounds();
+        allPoints.forEach(point => {
+            bounds.extend([point.lon, point.lat]);
+        });
+        if (!bounds.isEmpty()) {
+            map.fitBounds(bounds, { padding: 50, duration: 1000 });
+            updateStatus(`Приближено к ${allPoints.length} точкам`);
+        }
+    }
+
+    // ========== СТАТИСТИКА ==========
+    function updateStatistics() {
+        const statsSection = document.getElementById('statsSection');
+        const okResults = results.filter(r => r.status === 'OK');
+        
+        if (okResults.length === 0) { 
+            if (statsSection) statsSection.style.display = 'none'; 
+            return; 
+        }
+        if (statsSection) statsSection.style.display = 'block';
+        
+        const distances = okResults.map(r => r.distance);
+        const totalRoutes = okResults.length;
+        const avgDistance = (distances.reduce((a,b) => a + b, 0) / totalRoutes).toFixed(1);
+        const maxDistance = Math.max(...distances).toFixed(1);
+        const minDistance = Math.min(...distances).toFixed(1);
+        
+        document.getElementById('totalRoutes').innerText = totalRoutes;
+        document.getElementById('avgDistance').innerText = avgDistance;
+        document.getElementById('maxDistance').innerText = maxDistance;
+        document.getElementById('minDistance').innerText = minDistance;
+        
+        // Гистограмма распределения расстояний
+        const bins = [0, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1000];
+        const labels = ['0-50', '50-100', '100-150', '150-200', '200-250', '250-300', '300-400', '400-500', '500-750', '750-1000', '1000+'];
+        const counts = new Array(labels.length).fill(0);
+        
+        distances.forEach(d => {
+            let placed = false;
+            for (let i = 0; i < bins.length; i++) {
+                if (d < bins[i]) {
+                    counts[i]++;
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) counts[counts.length - 1]++;
+        });
+        
+        const ctx = document.getElementById('distanceChart');
+        if (distanceChart) distanceChart.destroy();
+        if (ctx) {
+            distanceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Количество маршрутов',
+                        data: counts,
+                        backgroundColor: '#059669',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'top', labels: { font: { size: 10 } } },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.raw} маршрутов` } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Количество', font: { size: 10 } } },
+                        x: { title: { display: true, text: 'Расстояние (км)', font: { size: 10 } }, ticks: { font: { size: 9 } } }
+                    }
+                }
+            });
+        }
+        
+        // Топ популярных точек назначения
+        const destCount = new Map();
+        okResults.forEach(r => destCount.set(r.to, (destCount.get(r.to) || 0) + 1));
+        const topDest = Array.from(destCount.entries()).sort((a,b) => b[1] - a[1]).slice(0, 5);
+        const topDestEl = document.getElementById('topDestinations');
+        if (topDestEl) {
+            topDestEl.innerHTML = topDest.length ? `🏆 Чаще всего в маршрутах: ${topDest.map(([n,c]) => `${escapeHtml(n)} (${c})`).join(', ')}` : '';
+        }
+    }
+
+    // ========== ЗАПУСК ==========
+    initMap();
+    setupSearch();
+    updateStatus('Готов к работе. Загрузите Excel или кликните на карту');
+
+</script>
+</body>
+</html>
