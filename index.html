@@ -9,6 +9,8 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.0/dist/togeojson.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; height: 100vh; overflow: hidden; }
@@ -161,20 +163,20 @@
         <!-- Загрузка файлов -->
         <div class="section">
             <div class="section-title"><i class="fas fa-file-excel"></i> Исходные данные</div>
-            <div class="file-area" onclick="document.getElementById('fromFile').click()">
+            
+            <div class="file-area" onclick="document.getElementById('fromFileInput').click()">
                 <i class="fas fa-upload"></i>
-                <p>Файл "Откуда" (Excel)</p>
+                <p>Загрузить точки "Откуда" (Excel, KML, KMZ)</p>
                 <div class="file-name" id="fromFileName"></div>
             </div>
-            <input type="file" id="fromFile" accept=".xlsx,.xls">
+            <input type="file" id="fromFileInput" accept=".xlsx,.xls,.kml,.kmz">
             
-            <div class="file-area" onclick="document.getElementById('toFile').click()">
+            <div class="file-area" onclick="document.getElementById('toFileInput').click()">
                 <i class="fas fa-upload"></i>
-                <p>Файл "Куда" (Excel)</p>
+                <p>Загрузить точки "Куда" (Excel, KML, KMZ)</p>
                 <div class="file-name" id="toFileName"></div>
             </div>
-            <input type="file" id="toFile" accept=".xlsx,.xls">
-            
+            <input type="file" id="toFileInput" accept=".xlsx,.xls,.kml,.kmz">
         </div>
 
         <!-- Ручное добавление точек -->
@@ -338,6 +340,7 @@
     }
     
     // ========== ВЫБОР ТОЧКИ НА КАРТЕ С ПОЛНЫМ АДРЕСОМ ==========
+    // ========== ВЫБОР ТОЧКИ НА КАРТЕ С ПОЛНЫМ АДРЕСОМ ==========
     async function setSelectedPoint(lng, lat, customName = null) {
         let fullAddress = customName;
         let shortName = customName;
@@ -348,10 +351,10 @@
                 const data = await resp.json();
                 
                 if (data && data.display_name) {
-                    // Полный адрес для отображения в карточке
+                    // Полный адрес для хранения в списках
                     fullAddress = data.display_name;
                     
-                    // Короткое имя для кнопок (чтобы не загромождать)
+                    // Короткое имя для отображения на карточке и маркере
                     const addr = data.address;
                     let short = '';
                     if (addr.road) short += addr.road;
@@ -360,6 +363,7 @@
                     if (!short && addr.village) short = addr.village;
                     if (!short && addr.town) short = addr.town;
                     if (!short && addr.city) short = addr.city;
+                    if (!short && addr.state) short = addr.state;
                     if (data.name && !short.includes(data.name)) {
                         short = short ? `${data.name}, ${short}` : data.name;
                     }
@@ -391,17 +395,18 @@
             </div>
         `;
         
+        // Добавляем ПОЛНЫЙ адрес в точки (а не короткий!)
         document.getElementById('addToFromBtn').onclick = () => {
-            pointsFrom.push({ name: shortName, fullAddress: fullAddress, lon: selectedPoint.lng, lat: selectedPoint.lat });
+            pointsFrom.push({ name: fullAddress, shortName: shortName, lon: selectedPoint.lng, lat: selectedPoint.lat });
             updateFromList();
-            fitBoundsToAllPoints();  // приближаем карту
+            fitBoundsToAllPoints();
             updateStatus(`Добавлено в Откуда: ${shortName}`);
         };
         
         document.getElementById('addToToBtn').onclick = () => {
-            pointsTo.push({ name: shortName, fullAddress: fullAddress, lon: selectedPoint.lng, lat: selectedPoint.lat });
+            pointsTo.push({ name: fullAddress, shortName: shortName, lon: selectedPoint.lng, lat: selectedPoint.lat });
             updateToList();
-            fitBoundsToAllPoints();  // приближаем карту
+            fitBoundsToAllPoints();
             updateStatus(`Добавлено в Куда: ${shortName}`);
         };
         
@@ -507,8 +512,6 @@
         div.style.display = 'block';
     }
     
-    document.getElementById('fromFile').addEventListener('change', e => { if(e.target.files[0]) parseExcel(e.target.files[0], 'from'); });
-    document.getElementById('toFile').addEventListener('change', e => { if(e.target.files[0]) parseExcel(e.target.files[0], 'to'); });
     
     // ========== РУЧНОЕ ДОБАВЛЕНИЕ ==========
     document.getElementById('addManualBtn').addEventListener('click', () => {
@@ -535,9 +538,12 @@
         }
         let html = '';
         pointsFrom.forEach((p, idx) => {
-            const displayName = p.fullAddress ? p.fullAddress.split(',')[0] : p.name;
-            const tooltip = p.fullAddress || p.name;
-            html += `<div class="point-item" title="${escapeHtml(tooltip)}">
+            // Для отображения в списке используем ПОЛНЫЙ адрес, но обрезаем для краткости
+            let displayName = p.name;
+            if (displayName.length > 60) {
+                displayName = displayName.slice(0, 57) + '...';
+            }
+            html += `<div class="point-item" title="${escapeHtml(p.name)}">
                         <div>
                             <strong>${escapeHtml(displayName)}</strong>
                             <br><span style="font-size: 10px;">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span>
@@ -547,6 +553,37 @@
         });
         container.innerHTML = html;
         updateFromMarkers();
+        updateReadyStatus();
+    }
+    
+    function updateToList() {
+        const container = document.getElementById('pointsToList');
+        const badge = document.getElementById('toCount');
+        if (container) {
+            if (badge) badge.innerText = pointsTo.length;
+            if (!pointsTo.length) { 
+                container.innerHTML = '<div style="padding: 12px; text-align: center; color: #94a3b8;">Нет точек</div>'; 
+                updateToMarkers();
+                return; 
+            }
+            let html = '';
+            pointsTo.forEach((p, idx) => {
+                // Для отображения в списке используем ПОЛНЫЙ адрес
+                let displayName = p.name;
+                if (displayName.length > 60) {
+                    displayName = displayName.slice(0, 57) + '...';
+                }
+                html += `<div class="point-item" title="${escapeHtml(p.name)}">
+                            <div>
+                                <strong>${escapeHtml(displayName)}</strong>
+                                <br><span style="font-size: 10px;">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</span>
+                            </div>
+                            <button onclick="removeToPoint(${idx})"><i class="fas fa-trash"></i></button>
+                         </div>`;
+            });
+            container.innerHTML = html;
+            updateToMarkers();
+        }
         updateReadyStatus();
     }
     
@@ -980,7 +1017,7 @@
         
         updateStatus(`✅ Экспортировано ${results.length} маршрутов в Excel (ближайшие выделены желтым)`);
     });
-        
+
     // ========== КНОПКИ ==========
     document.getElementById('locateBtn').addEventListener('click', () => {
         if (navigator.geolocation) {
@@ -1007,11 +1044,10 @@
         if (icon) icon.className = isErr ? 'fas fa-exclamation-triangle' : 'fas fa-circle';
         console.log(msg);
     }
-    // ========== ОЧИСТКА ВСЕХ ДАННЫХ ==========
+        // ========== ОЧИСТКА ВСЕХ ДАННЫХ ==========
     document.getElementById('clearAllPointsBtn').addEventListener('click', () => {
         const fromCount = pointsFrom.length;
         const toCount = pointsTo.length;
-        const totalPoints = fromCount + toCount;
         const hasResults = results.length > 0;
         
         // Очищаем массивы точек
@@ -1033,8 +1069,8 @@
         toMarkers = [];
         
         // Очищаем поля загрузки файлов
-        document.getElementById('fromFile').value = '';
-        document.getElementById('toFile').value = '';
+        document.getElementById('fromFileInput').value = '';
+        document.getElementById('toFileInput').value = '';
         document.getElementById('fromFileName').innerText = '';
         document.getElementById('toFileName').innerText = '';
         
@@ -1043,8 +1079,8 @@
         const previewTo = document.getElementById('previewTo');
         if (previewFrom) previewFrom.style.display = 'none';
         if (previewTo) previewTo.style.display = 'none';
-        previewFrom.innerHTML = '';
-        previewTo.innerHTML = '';
+        if (previewFrom) previewFrom.innerHTML = '';
+        if (previewTo) previewTo.innerHTML = '';
         
         // Очищаем подсветку маршрута, если есть
         if (highlightLayer) { 
@@ -1059,42 +1095,74 @@
         // Очищаем результаты в интерфейсе
         document.getElementById('resultsBadge').innerText = '0';
         document.getElementById('resultsList').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;"><i class="fas fa-info-circle"></i><br>Загрузите данные и нажмите "Начать расчет"</div>';
-                // Скрываем статистику
+        
+        // Скрываем статистику
         const statsSection = document.getElementById('statsSection');
         if (statsSection) statsSection.style.display = 'none';
         if (distanceChart) {
             distanceChart.destroy();
             distanceChart = null;
         }
-        // Сбрасываем статус
-        updateStatus(`✅ Очищено: Откуда (${fromCount} точек), Куда (${toCount} точек), Результатов (${hasResults ? results.length : 0})`);
         
-        // Блокируем кнопку экспорта
+        // Сбрасываем кнопку экспорта
         document.getElementById('exportBtn').disabled = true;
+        
+        // Сбрасываем прогресс
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('progressFill').style.width = '0%';
+        
+        // Сбрасываем статус
+        updateStatus(`✅ Очищено: Откуда (${fromCount} точек), Куда (${toCount} точек), Результатов (${hasResults ? 'удалены' : '0'})`);
     });
 
         // ========== УПРАВЛЕНИЕ МАРКЕРАМИ НА КАРТЕ ==========
     
     // Обновить маркеры "Откуда" на карте
     function updateFromMarkers() {
-        // Удаляем старые маркеры
         fromMarkers.forEach(marker => marker.remove());
         fromMarkers = [];
         
-        // Добавляем новые маркеры
         pointsFrom.forEach(point => {
+            // Для маркера используем короткое название (чтобы не загромождать карту)
+            let shortLabel = point.shortName || point.name.split(',')[0];
+            if (shortLabel.length > 25) shortLabel = shortLabel.slice(0, 22) + '...';
+            
             const markerEl = document.createElement('div');
             markerEl.innerHTML = `
                 <div style="background: #059669; color: white; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border: 1px solid white;">
-                    <i class="fas fa-play"></i> ${escapeHtml(point.name.length > 20 ? point.name.slice(0,18)+'...' : point.name)}
+                    <i class="fas fa-play"></i> ${escapeHtml(shortLabel)}
                 </div>`;
             markerEl.style.cursor = 'pointer';
-            markerEl.title = point.fullAddress || point.name;
+            markerEl.title = point.name;  // Полный адрес в подсказке
             
             const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
                 .setLngLat([point.lon, point.lat])
                 .addTo(map);
             fromMarkers.push(marker);
+        });
+    }
+    
+    function updateToMarkers() {
+        toMarkers.forEach(marker => marker.remove());
+        toMarkers = [];
+        
+        pointsTo.forEach(point => {
+            // Для маркера используем короткое название
+            let shortLabel = point.shortName || point.name.split(',')[0];
+            if (shortLabel.length > 25) shortLabel = shortLabel.slice(0, 22) + '...';
+            
+            const markerEl = document.createElement('div');
+            markerEl.innerHTML = `
+                <div style="background: #3b82f6; color: white; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border: 1px solid white;">
+                    <i class="fas fa-flag-checkered"></i> ${escapeHtml(shortLabel)}
+                </div>`;
+            markerEl.style.cursor = 'pointer';
+            markerEl.title = point.name;  // Полный адрес в подсказке
+            
+            const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                .setLngLat([point.lon, point.lat])
+                .addTo(map);
+            toMarkers.push(marker);
         });
     }
     
@@ -1218,6 +1286,116 @@
         if (topDestEl) {
             topDestEl.innerHTML = topDest.length ? `🏆 Чаще всего в маршрутах: ${topDest.map(([n,c]) => `${escapeHtml(n)} (${c})`).join(', ')}` : '';
         }
+    }
+
+        // ========== УНИВЕРСАЛЬНАЯ ЗАГРУЗКА ФАЙЛОВ (Excel + KML) ==========
+    
+    function getFileType(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        if (ext === 'xlsx' || ext === 'xls') return 'excel';
+        if (ext === 'kml' || ext === 'kmz') return 'kml';
+        return 'unknown';
+    }
+    
+    // Загрузка для "Откуда"
+    document.getElementById('fromFileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const fileType = getFileType(file.name);
+        
+        if (fileType === 'excel') {
+            parseExcel(file, 'from');
+        } else if (fileType === 'kml') {
+            await parseKML(file, 'from');
+        } else {
+            updateStatus(`❌ Неподдерживаемый формат: ${file.name}`, true);
+        }
+    });
+    
+    // Загрузка для "Куда"
+    document.getElementById('toFileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const fileType = getFileType(file.name);
+        
+        if (fileType === 'excel') {
+            parseExcel(file, 'to');
+        } else if (fileType === 'kml') {
+            await parseKML(file, 'to');
+        } else {
+            updateStatus(`❌ Неподдерживаемый формат: ${file.name}`, true);
+        }
+    });
+    
+    // Функция загрузки KML
+    async function parseKML(file, target) {
+        updateStatus(`Загрузка KML: ${file.name}...`);
+        
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const kmlText = e.target.result;
+                    const parser = new DOMParser();
+                    const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
+                    
+                    const parserError = kmlDoc.querySelector('parsererror');
+                    if (parserError) {
+                        throw new Error('Ошибка парсинга KML');
+                    }
+                    
+                    const geoJson = toGeoJSON.kml(kmlDoc);
+                    
+                    if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
+                        throw new Error('В KML нет объектов');
+                    }
+                    
+                    const points = [];
+                    
+                    for (const feature of geoJson.features) {
+                        let geometry = feature.geometry;
+                        let name = feature.properties?.name || feature.id || 'Объект';
+                        
+                        if (geometry.type === 'Polygon') {
+                            const polygon = turf.polygon(geometry.coordinates);
+                            const centroid = turf.centroid(polygon);
+                            const coords = centroid.geometry.coordinates;
+                            points.push({ name: name, lon: coords[0], lat: coords[1] });
+                        } else if (geometry.type === 'Point') {
+                            points.push({ name: name, lon: geometry.coordinates[0], lat: geometry.coordinates[1] });
+                        }
+                    }
+                    
+                    if (points.length === 0) {
+                        throw new Error('Не найдено полигонов или точек');
+                    }
+                    
+                    if (target === 'from') {
+                        pointsFrom = points;
+                        updateFromList();
+                    } else {
+                        pointsTo = points;
+                        updateToList();
+                    }
+                    
+                    document.getElementById(`${target}FileName`).innerText = file.name;
+                    updateStatus(`✅ Загружено ${points.length} точек из KML в "${target === 'from' ? 'Откуда' : 'Куда'}"`);
+                    setTimeout(() => fitBoundsToAllPoints(), 100);
+                    resolve();
+                    
+                } catch (err) {
+                    updateStatus(`❌ Ошибка KML: ${err.message}`, true);
+                    reject(err);
+                }
+            };
+            reader.onerror = () => {
+                updateStatus('❌ Ошибка чтения файла', true);
+                reject();
+            };
+            reader.readAsText(file);
+        });
     }
 
     // ========== ЗАПУСК ==========
