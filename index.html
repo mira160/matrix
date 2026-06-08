@@ -231,6 +231,32 @@
                     <option value="500">500 мс</option>
                 </select>
             </div>
+                        <!-- Расчёт стоимости -->
+            <div class="section-title" style="margin-top: 16px;"><i class="fas fa-ruble-sign"></i> Расчёт стоимости</div>
+            <div class="settings-row">
+                <label><i class="fas fa-gas-pump"></i> Расход топлива (л/100 км)</label>
+                <input type="number" id="fuelConsumption" value="10" step="0.5" min="0" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:12px;">
+            </div>
+            <div class="settings-row">
+                <label><i class="fas fa-money-bill-wave"></i> Цена топлива (руб/л)</label>
+                <input type="number" id="fuelPrice" value="55" step="1" min="0" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:12px;">
+            </div>
+            <div class="settings-row">
+                <label><i class="fas fa-road"></i> Расход на 100 км (руб/км)</label>
+                <div style="background: #f1f5f9; padding: 8px 12px; border-radius: 12px; font-size: 13px; color: #1e293b;">
+                    = (Расход топлива × Цена топлива) ÷ 100 = <span id="costPerKm">5.50</span> руб/км
+                </div>
+            </div>
+            <div class="settings-row">
+                <label><i class="fas fa-chart-line"></i> Дополнительные расходы (руб/км)</label>
+                <input type="number" id="extraCost" value="0" step="0.5" min="0" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:12px;">
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px;">Амортизация, ЗП водителя, прочее</div>
+            </div>
+            <div class="settings-row">
+                <label><i class="fas fa-calculator"></i> Итого стоимость (руб/км)</label>
+                <div style="background: #059669; padding: 8px 12px; border-radius: 12px; font-size: 16px; font-weight: 700; color: white; text-align: center;" id="totalCostPerKm">5.50</div>
+            </div>
+
             
             <button class="btn btn-primary" id="calcBtn"><i class="fas fa-play"></i> НАЧАТЬ РАСЧЕТ</button>
             <button class="btn btn-secondary" id="exportBtn" disabled><i class="fas fa-download"></i> ЭКСПОРТ В EXCEL</button>
@@ -242,6 +268,17 @@
                 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                 <div class="progress-text" id="progressMsg">Готов</div>
             </div>
+            <button id="abortCalcBtn" style="width:100%; margin-top:10px; padding:8px; background:#dc2626; color:white; border:none; border-radius:10px; cursor:pointer; font-size:13px; display:none;">
+                <i class="fas fa-stop"></i> ПРЕРВАТЬ РАСЧЕТ
+            </button>
+        </div>
+
+                <!-- Панель логирования -->
+        <div class="section" id="logSection" style="display: none;">
+            <div class="section-title"><i class="fas fa-terminal"></i> Лог выполнения</div>
+            <div id="logContainer" style="background: #1e1e1e; color: #00ff00; font-family: 'Consolas', monospace; font-size: 11px; padding: 10px; border-radius: 12px; height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
+                <div>🚀 Готов к работе</div>
+            </div>
         </div>
 
         <!-- Статистика -->
@@ -252,6 +289,7 @@
                 <div class="stat-card" style="background: #eff6ff;"><div class="stat-number" style="color: #3b82f6;" id="avgDistance">0</div><div class="stat-label">Среднее км</div></div>
                 <div class="stat-card" style="background: #fef2f2;"><div class="stat-number" style="color: #ef4444;" id="maxDistance">0</div><div class="stat-label">Макс. км</div></div>
                 <div class="stat-card" style="background: #fef3c7;"><div class="stat-number" style="color: #f59e0b;" id="minDistance">0</div><div class="stat-label">Мин. км</div></div>
+                <div class="stat-card" style="background: #e0f2fe;"><div class="stat-number" style="color: #0284c7;" id="totalCost">0 ₽</div><div class="stat-label">Общая стоимость</div></div>
             </div>
             <div style="background: #f8fafc; border-radius: 12px; padding: 12px;">
                 <canvas id="distanceChart" width="400" height="180" style="width:100%; max-height: 180px;"></canvas>
@@ -286,6 +324,7 @@
             <button class="control-btn" id="locateBtn" title="Моё местоположение"><i class="fas fa-location-dot"></i></button>
             <button class="control-btn" id="fitBoundsBtn" title="Показать все"><i class="fas fa-arrows-alt"></i></button>
             <button class="control-btn" id="clearRoutesBtn" title="Очистить маршруты"><i class="fas fa-trash-alt"></i></button>
+            <button class="control-btn" id="togglePolygonsBtn" title="Показать полигоны"><i class="fas fa-draw-polygon"></i></button>
         </div>
     </div>
 </div>
@@ -307,7 +346,55 @@
     let fromMarkers = [];
     let toMarkers = [];
     let distanceChart = null;
+    let kmlPolygonLayers = [];
+    let abortCalculation = false;
+    let calculationStartTime = 0;
+    let calculationLogs = [];
+    let polygonsVisible = false;      // полигоны скрыты по умолчанию
+    let lastLoadedGeoJson = null;     // храним последний загруженный KML
     
+    // ========== РАСЧЁТ СТОИМОСТИ ==========
+    function updateCostPerKm() {
+        const consumption = parseFloat(document.getElementById('fuelConsumption').value) || 0;
+        const price = parseFloat(document.getElementById('fuelPrice').value) || 0;
+        const extra = parseFloat(document.getElementById('extraCost').value) || 0;
+        
+        const fuelCostPerKm = (consumption * price) / 100;
+        const total = fuelCostPerKm + extra;
+        
+        document.getElementById('costPerKm').innerText = fuelCostPerKm.toFixed(2);
+        document.getElementById('totalCostPerKm').innerText = total.toFixed(2);
+        
+        return total;
+    }
+    
+    // Обновление при изменении полей
+    document.getElementById('fuelConsumption').addEventListener('input', updateCostPerKm);
+    document.getElementById('fuelPrice').addEventListener('input', updateCostPerKm);
+    document.getElementById('extraCost').addEventListener('input', updateCostPerKm);
+    
+    // Функция расчёта стоимости маршрута
+    function calculateRouteCost(distanceKm) {
+        const consumption = parseFloat(document.getElementById('fuelConsumption').value) || 0;
+        const price = parseFloat(document.getElementById('fuelPrice').value) || 0;
+        const extra = parseFloat(document.getElementById('extraCost').value) || 0;
+        
+        const fuelCost = (distanceKm / 100) * consumption * price;
+        const extraCost = distanceKm * extra;
+        const totalCost = fuelCost + extraCost;
+        
+        return {
+            fuel: fuelCost,
+            extra: extraCost,
+            total: totalCost
+        };
+    }
+    
+    // Форматирование рублей
+    function formatRubles(value) {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ₽';
+    }
+
     // ========== ИНИЦИАЛИЗАЦИЯ КАРТЫ (БРЯНСК) ==========
     function initMap() {
         map = new maplibregl.Map({
@@ -744,7 +831,7 @@
         }
     }
     
-    // ========== ОСНОВНОЙ РАСЧЕТ ==========
+    // ========== ОСНОВНОЙ РАСЧЕТ С ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ ==========
     document.getElementById('calcBtn').addEventListener('click', async () => {
         if (isCalculating) { updateStatus('Расчет уже выполняется...'); return; }
         if (!pointsFrom.length) { updateStatus('Нет точек "Откуда"', true); return; }
@@ -753,12 +840,29 @@
         if (calculationMode === 'matrix' && !targets.length) { updateStatus('Нет точек "Куда"', true); return; }
         if (calculationMode === 'nearest' && !targets.length) { updateStatus('Для режима "Ближайшие" нужны точки "Куда"', true); return; }
         
+        // Сброс состояния
+        abortCalculation = false;
+        calculationStartTime = performance.now();
+        clearLogs();
+        addLog('═══════════════════════════════════════════════════════════', 'info');
+        addLog('🚀 ЗАПУСК РАСЧЕТА', 'success');
+        addLog(`📋 Режим: ${calculationMode === 'matrix' ? 'Матрица (все ко всем)' : 'Ближайшие (N ближайших)'}`, 'info');
+        addLog(`📍 Транспорт: ${document.getElementById('vehicle').options[document.getElementById('vehicle').selectedIndex]?.text || 'Автомобиль'}`, 'info');
+        addLog(`📊 Точки "Откуда": ${pointsFrom.length}`, 'info');
+        addLog(`📊 Точки "Куда": ${targets.length}`, 'info');
+        
+        const totalRequests = calculationMode === 'matrix' ? pointsFrom.length * targets.length : pointsFrom.length * targets.length;
+        addLog(`🌐 Всего запросов к OSRM: ${totalRequests}`, 'timing');
+        
         isCalculating = true;
         const calcBtn = document.getElementById('calcBtn');
         const exportBtn = document.getElementById('exportBtn');
+        const abortBtn = document.getElementById('abortCalcBtn');
         calcBtn.disabled = true;
         exportBtn.disabled = true;
+        abortBtn.style.display = 'block';
         document.getElementById('progressSection').style.display = 'block';
+        
         const progressFill = document.getElementById('progressFill');
         const progressMsg = document.getElementById('progressMsg');
         const vehicle = document.getElementById('vehicle').value;
@@ -768,55 +872,130 @@
         results = [];
         clearMapRoutes();
         
+        let completed = 0;
+        let successCount = 0;
+        let errorCount = 0;
+        let requestTimes = [];
+        
+        addLog(`⚙️ Задержка между запросами: ${delayMs} мс`, 'info');
+        
+        // Кнопка прерывания
+        abortBtn.onclick = () => {
+            abortCalculation = true;
+            addLog('⏹ ПОЛЬЗОВАТЕЛЬ ПРЕРВАЛ РАСЧЕТ', 'warning');
+            updateStatus('Прерывание расчета...', true);
+        };
+        
         if (calculationMode === 'matrix') {
             const total = pointsFrom.length * targets.length;
-            let completed = 0;
+            addLog(`📈 Начинаем расчет матрицы ${pointsFrom.length}×${targets.length}`, 'success');
+            
             for (const from of pointsFrom) {
+                if (abortCalculation) break;
+                
                 for (const to of targets) {
+                    if (abortCalculation) break;
+                    
+                    const requestStart = performance.now();
+                    addLog(`🔄 Запрос: ${from.name} → ${to.name}`, 'info');
+                    
                     const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    
+                    const requestTime = (performance.now() - requestStart).toFixed(0);
+                    requestTimes.push(parseFloat(requestTime));
+                    
                     completed++;
                     const percent = (completed / total) * 100;
                     progressFill.style.width = `${percent}%`;
-                    progressMsg.innerText = `${completed}/${total} маршрутов`;
+                    progressMsg.innerText = `${completed}/${total} маршрутов (${successCount} успешно, ${errorCount} ошибок)`;
                     
                     if (route) {
+                        successCount++;
                         results.push({ from: from.name, to: to.name, distance: route.distanceKm, duration: route.durationMin, status: 'OK', fromCoord: [from.lon, from.lat], toCoord: [to.lon, to.lat], geometry: route.geometry });
                         drawSingleRoute(route.geometry, '#059669', 3);
+                        addLog(`✅ УСПЕХ: ${from.name} → ${to.name} | ${route.distanceKm.toFixed(2)} км | ${requestTime} мс`, 'success');
                     } else {
+                        errorCount++;
                         results.push({ from: from.name, to: to.name, status: 'Ошибка' });
+                        addLog(`❌ ОШИБКА: ${from.name} → ${to.name} | ${requestTime} мс`, 'error');
                     }
-                    if (completed < total) await new Promise(r => setTimeout(r, delayMs));
+                    
+                    if (completed < total && !abortCalculation) {
+                        await new Promise(r => setTimeout(r, delayMs));
+                    }
                 }
             }
         } else {
-            let completed = 0;
+            // Режим ближайших
+            addLog(`📈 Начинаем расчет ближайших (${nearestK} на точку)`, 'success');
+            let completedPoints = 0;
+            
             for (const from of pointsFrom) {
+                if (abortCalculation) break;
+                
+                addLog(`🔍 Поиск ближайших для: ${from.name}`, 'info');
                 const distances = [];
+                let pointSuccess = 0;
+                
                 for (const to of targets) {
+                    if (abortCalculation) break;
+                    
+                    const requestStart = performance.now();
                     const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
-                    if (route) distances.push({ to, distance: route.distanceKm, duration: route.durationMin, geometry: route.geometry });
+                    const requestTime = (performance.now() - requestStart).toFixed(0);
+                    requestTimes.push(parseFloat(requestTime));
+                    
+                    if (route) {
+                        distances.push({ to, distance: route.distanceKm, duration: route.durationMin, geometry: route.geometry });
+                        addLog(`  📍 ${from.name} → ${to.name}: ${route.distanceKm.toFixed(2)} км (${requestTime} мс)`, 'info');
+                    }
                     await new Promise(r => setTimeout(r, delayMs / 2));
                 }
+                
                 distances.sort((a,b) => a.distance - b.distance);
                 const nearest = distances.slice(0, nearestK);
+                
                 for (const n of nearest) {
+                    successCount++;
                     results.push({ from: from.name, to: n.to.name, distance: n.distance, duration: n.duration, status: 'OK', fromCoord: [from.lon, from.lat], toCoord: [n.to.lon, n.to.lat], geometry: n.geometry });
                     drawSingleRoute(n.geometry, '#059669', 3);
                 }
-                completed++;
-                const percent = (completed / pointsFrom.length) * 100;
+                
+                completedPoints++;
+                addLog(`✅ Для ${from.name} найдено ${nearest.length} маршрутов (${distances.length} проверено)`, 'success');
+                
+                const percent = (completedPoints / pointsFrom.length) * 100;
                 progressFill.style.width = `${percent}%`;
-                progressMsg.innerText = `Обработано ${completed}/${pointsFrom.length} исходных точек (найдено ${results.length} маршрутов)`;
+                progressMsg.innerText = `Обработано ${completedPoints}/${pointsFrom.length} исходных точек (найдено ${results.length} маршрутов)`;
             }
+            completed = results.length;
         }
         
-        // Обновляем список результатов - ВСЕ маршруты, ближайшие подсвечены
+        // Итоговая статистика
+        const totalTime = (performance.now() - calculationStartTime) / 1000;
+        const avgRequestTime = requestTimes.length > 0 ? (requestTimes.reduce((a,b) => a + b, 0) / requestTimes.length).toFixed(0) : 0;
+        const speed = completed / totalTime;
+        
+        addLog('═══════════════════════════════════════════════════════════', 'info');
+        addLog(`📊 ИТОГИ РАСЧЕТА`, 'success');
+        addLog(`⏱ Общее время: ${totalTime.toFixed(2)} сек`, 'timing');
+        addLog(`⚡ Скорость: ${speed.toFixed(1)} запросов/сек`, 'timing');
+        addLog(`📈 Среднее время запроса: ${avgRequestTime} мс`, 'timing');
+        addLog(`✅ Успешных: ${successCount}`, 'success');
+        addLog(`❌ Ошибок: ${errorCount}`, errorCount > 0 ? 'error' : 'info');
+        addLog(`📋 Всего маршрутов: ${results.length}`, 'info');
+        
+        if (abortCalculation) {
+            addLog('⏹ РАСЧЕТ ПРЕРВАН ПОЛЬЗОВАТЕЛЕМ', 'warning');
+        }
+        
+        // Обновляем список результатов
         const resultsContainer = document.getElementById('resultsList');
         document.getElementById('resultsBadge').innerText = results.length;
+        
         if (!results.length) {
             resultsContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет результатов</div>';
         } else {
-            // Для КАЖДОЙ точки "Откуда" находим ближайший маршрут
             const nearestMapForDisplay = new Map();
             if (calculationMode === 'matrix') {
                 const routesByFrom = new Map();
@@ -845,10 +1024,21 @@
                     const nearestClass = isNearest ? 'result-nearest' : '';
                     const nearestBadge = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
                     
+                    // Расчёт стоимости
+                    const cost = calculateRouteCost(r.distance);
+                    
                     return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
                                 <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
                                 ${nearestBadge}
-                                <div class="distance-info">📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин</div>
+                                <div class="distance-info">
+                                    📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин
+                                    <span style="display: inline-block; margin-left: 12px; background: #05966920; padding: 2px 8px; border-radius: 20px;">
+                                        💰 ${formatRubles(cost.total)}
+                                    </span>
+                                </div>
+                                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">
+                                    ⛽ топливо: ${formatRubles(cost.fuel)} | 📦 доп: ${formatRubles(cost.extra)}
+                                </div>
                             </div>`;
                 } else {
                     return `<div class="result-item result-error">❌ ${escapeHtml(r.from)} → ${escapeHtml(r.to)}: ${r.status}</div>`;
@@ -856,23 +1046,28 @@
             }).join('');
         }
 
-        if (results.length) {
+        if (results.length && !abortCalculation) {
             const bounds = new maplibregl.LngLatBounds();
             pointsFrom.forEach(p => bounds.extend([p.lon, p.lat]));
             targets.forEach(t => bounds.extend([t.lon, t.lat]));
             if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 50 });
         }
 
-                // Обновляем статистику
         updateStatistics();
         
-        exportBtn.disabled = false;
+        exportBtn.disabled = results.length === 0;
         calcBtn.disabled = false;
+        abortBtn.style.display = 'none';
         isCalculating = false;
-        updateStatus(`✅ Расчет завершен: ${results.filter(r => r.status === 'OK').length} маршрутов`);
+        
+        if (!abortCalculation) {
+            updateStatus(`✅ Расчет завершен: ${successCount} маршрутов за ${totalTime.toFixed(1)} сек`);
+        } else {
+            updateStatus(`⏹ Расчет прерван: ${successCount} маршрутов`);
+        }
         document.getElementById('progressSection').style.display = 'none';
     });
-    
+
     window.highlightRoute = highlightRoute;
     
 
@@ -958,28 +1153,36 @@
                         <th>Куда</th>
                         <th>Расстояние (км)</th>
                         <th>Время (мин)</th>
+                        <th>Стоимость (₽)</th>
+                        <th>Топливо (₽)</th>
+                        <th>Доп.расходы (₽)</th>
                         <th>Ближайший</th>
                         <th>Статус</th>
                     </tr>
                 </thead>
                 <tbody>`;
         
-        // Добавляем строки с данными
+                // Добавляем строки с данными
         results.forEach((r, idx) => {
             const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from).index === idx;
             const rowClass = isNearest && r.status === 'OK' ? 'nearest' : '';
             const nearestBadge = isNearest && r.status === 'OK' ? '<span class="badge">⭐ Ближайший</span>' : '';
             
-            // ПРЕОБРАЗОВАНИЕ РАССТОЯНИЯ: проверяем что это число, заменяем точку на запятую
             let distanceValue = '—';
-            if (r.status === 'OK' && r.distance !== undefined && r.distance !== null && !isNaN(r.distance)) {
-                // Преобразуем в число с 2 знаками и заменяем точку на запятую
+            let costValue = '—';
+            let fuelValue = '—';
+            let extraValue = '—';
+            
+            if (r.status === 'OK' && r.distance !== undefined && !isNaN(r.distance)) {
                 distanceValue = r.distance.toFixed(2).replace('.', ',');
+                const cost = calculateRouteCost(r.distance);
+                costValue = Math.round(cost.total).toString();
+                fuelValue = Math.round(cost.fuel).toString();
+                extraValue = Math.round(cost.extra).toString();
             }
             
-            // ПРЕОБРАЗОВАНИЕ ВРЕМЕНИ
             let timeValue = '—';
-            if (r.status === 'OK' && r.duration !== undefined && r.duration !== null && !isNaN(r.duration)) {
+            if (r.status === 'OK' && r.duration !== undefined && !isNaN(r.duration)) {
                 timeValue = Math.round(r.duration).toString();
             }
             
@@ -989,9 +1192,12 @@
                 <td>${escapeHtml(r.to)}</td>
                 <td class="distance-cell">${distanceValue}</td>
                 <td class="time-cell">${timeValue}</td>
+                <td class="distance-cell">${costValue}</td>
+                <td class="distance-cell">${fuelValue}</td>
+                <td class="distance-cell">${extraValue}</td>
                 <td style="text-align: center;">${nearestBadge}</td>
                 <td>${r.status === 'OK' ? '✅ Успешно' : '❌ ' + escapeHtml(r.status)}</td>
-             </tr>`;
+            </tr>`;
         });
         
         htmlTable += `
@@ -1034,6 +1240,28 @@
         clearMapRoutes();
         updateStatus('Маршруты очищены');
     });
+    document.getElementById('togglePolygonsBtn').addEventListener('click', () => {
+        if (!lastLoadedGeoJson) {
+            updateStatus('Нет загруженных полигонов. Сначала загрузите KML файл', true);
+            return;
+        }
+        
+        if (polygonsVisible) {
+            // Скрываем полигоны
+            clearKmlPolygons();
+            polygonsVisible = false;
+            document.getElementById('togglePolygonsBtn').innerHTML = '<i class="fas fa-draw-polygon"></i>';
+            document.getElementById('togglePolygonsBtn').title = 'Показать полигоны';
+            updateStatus('Полигоны скрыты с карты');
+        } else {
+            // Показываем полигоны
+            addKmlPolygonsToMap(lastLoadedGeoJson, '#8b5cf6');
+            polygonsVisible = true;
+            document.getElementById('togglePolygonsBtn').innerHTML = '<i class="fas fa-eye-slash"></i>';
+            document.getElementById('togglePolygonsBtn').title = 'Скрыть полигоны';
+            updateStatus('Полигоны отображены на карте');
+        }
+    });
     
     // ========== ВСПОМОГАТЕЛЬНЫЕ ==========
     function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
@@ -1043,6 +1271,42 @@
         if (span) span.textContent = msg;
         if (icon) icon.className = isErr ? 'fas fa-exclamation-triangle' : 'fas fa-circle';
         console.log(msg);
+    }
+        // ========== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ==========
+    function addLog(message, type = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+        const logContainer = document.getElementById('logContainer');
+        const logSection = document.getElementById('logSection');
+        
+        if (logSection) logSection.style.display = 'block';
+        
+        const colors = {
+            info: '#00ff00',
+            warning: '#ffaa00',
+            error: '#ff4444',
+            success: '#00ffaa',
+            timing: '#88aaff'
+        };
+        
+        const logEntry = `<div style="color: ${colors[type] || colors.info}; border-left: 2px solid ${colors[type] || colors.info}; padding-left: 8px; margin-bottom: 4px;">
+            <span style="color: #888;">[${timestamp}]</span> ${message}
+        </div>`;
+        
+        if (logContainer) {
+            logContainer.insertAdjacentHTML('beforeend', logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        calculationLogs.push({ timestamp, message, type });
+        console.log(`[${timestamp}] ${message}`);
+    }
+    
+    function clearLogs() {
+        const logContainer = document.getElementById('logContainer');
+        if (logContainer) {
+            logContainer.innerHTML = '<div>🚀 Готов к работе</div>';
+        }
+        calculationLogs = [];
     }
         // ========== ОЧИСТКА ВСЕХ ДАННЫХ ==========
     document.getElementById('clearAllPointsBtn').addEventListener('click', () => {
@@ -1061,6 +1325,17 @@
         
         // Очищаем маршруты и маркеры с карты
         clearMapRoutes();
+
+     
+        // Очищаем полигоны KML с карты и сбрасываем состояние
+        clearKmlPolygons();
+        lastLoadedGeoJson = null;
+        polygonsVisible = false;
+        const toggleBtn = document.getElementById('togglePolygonsBtn');
+        if (toggleBtn) {
+            toggleBtn.innerHTML = '<i class="fas fa-draw-polygon"></i>';
+            toggleBtn.title = 'Показать полигоны';
+        }
         
         // Очищаем маркеры точек
         fromMarkers.forEach(marker => marker.remove());
@@ -1194,6 +1469,36 @@
         updateFromMarkers();
         updateToMarkers();
     }
+
+        // ========== ОТОБРАЖЕНИЕ ПОЛИГОНОВ НА КАРТЕ ==========
+    function clearKmlPolygons() {
+        kmlPolygonLayers.forEach(layerId => {
+            try {
+                if (map.getLayer(layerId)) map.removeLayer(layerId);
+                if (map.getSource(layerId)) map.removeSource(layerId);
+            } catch(e) {}
+        });
+        kmlPolygonLayers = [];
+    }
+    
+    function addKmlPolygonsToMap(geoJson, color = '#8b5cf6') {
+        if (!geoJson || !geoJson.features) return;
+        let polygonCount = 0;
+        for (const feature of geoJson.features) {
+            const geometry = feature.geometry;
+            if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+                const sourceId = `kml_polygon_${Date.now()}_${polygonCount}`;
+                const fillLayerId = `kml_fill_${Date.now()}_${polygonCount}`;
+                const lineLayerId = `kml_line_${Date.now()}_${polygonCount}`;
+                map.addSource(sourceId, { type: 'geojson', data: feature });
+                map.addLayer({ id: fillLayerId, type: 'fill', source: sourceId, paint: { 'fill-color': color, 'fill-opacity': 0.15, 'fill-outline-color': color } });
+                map.addLayer({ id: lineLayerId, type: 'line', source: sourceId, paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.6 } });
+                kmlPolygonLayers.push(fillLayerId, lineLayerId, sourceId);
+                polygonCount++;
+            }
+        }
+        if (polygonCount > 0) updateStatus(`📐 Отображено ${polygonCount} полигонов на карте`);
+    }
     
     // Приблизить карту ко всем точкам
     function fitBoundsToAllPoints() {
@@ -1238,6 +1543,18 @@
         const counts = new Array(labels.length).fill(0);
         
         distances.forEach(d => {
+                    // Расчёт общей стоимости всех маршрутов
+        let totalCost = 0;
+        okResults.forEach(r => {
+            const cost = calculateRouteCost(r.distance);
+            totalCost += cost.total;
+        });
+        
+        // Добавляем карточку общей стоимости (опционально)
+        const totalCostEl = document.getElementById('totalCost');
+        if (totalCostEl) {
+            totalCostEl.innerText = formatRubles(totalCost);
+        }
             let placed = false;
             for (let i = 0; i < bins.length; i++) {
                 if (d < bins[i]) {
@@ -1329,7 +1646,7 @@
         }
     });
     
-    // Функция загрузки KML
+    // Функция загрузки KML с отображением полигонов
     async function parseKML(file, target) {
         updateStatus(`Загрузка KML: ${file.name}...`);
         
@@ -1342,24 +1659,36 @@
                     const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
                     
                     const parserError = kmlDoc.querySelector('parsererror');
-                    if (parserError) {
-                        throw new Error('Ошибка парсинга KML');
-                    }
+                    if (parserError) throw new Error('Ошибка парсинга KML');
                     
                     const geoJson = toGeoJSON.kml(kmlDoc);
+                    if (!geoJson || !geoJson.features || geoJson.features.length === 0) throw new Error('В KML нет объектов');
                     
-                    if (!geoJson || !geoJson.features || geoJson.features.length === 0) {
-                        throw new Error('В KML нет объектов');
-                    }
+                    // ОТОБРАЖАЕМ ПОЛИГОНЫ НА КАРТЕ
+                    // Сохраняем полигоны, но НЕ ПОКАЗЫВАЕМ сразу
+                    lastLoadedGeoJson = geoJson;
+                    polygonsVisible = false;
+                    // Очищаем старые полигоны если были
+                    clearKmlPolygons();
+                    // НЕ вызываем addKmlPolygonsToMap - полигоны скрыты!
+                    updateStatus(`📐 Загружено ${geoJson.features.length} объектов. Нажмите кнопку "Показать полигоны" для отображения`);
                     
                     const points = [];
+                    let polygonCount = 0;
                     
                     for (const feature of geoJson.features) {
                         let geometry = feature.geometry;
                         let name = feature.properties?.name || feature.id || 'Объект';
                         
                         if (geometry.type === 'Polygon') {
+                            polygonCount++;
                             const polygon = turf.polygon(geometry.coordinates);
+                            const centroid = turf.centroid(polygon);
+                            const coords = centroid.geometry.coordinates;
+                            points.push({ name: name, lon: coords[0], lat: coords[1] });
+                        } else if (geometry.type === 'MultiPolygon') {
+                            polygonCount++;
+                            const polygon = turf.polygon(geometry.coordinates[0]);
                             const centroid = turf.centroid(polygon);
                             const coords = centroid.geometry.coordinates;
                             points.push({ name: name, lon: coords[0], lat: coords[1] });
@@ -1368,9 +1697,7 @@
                         }
                     }
                     
-                    if (points.length === 0) {
-                        throw new Error('Не найдено полигонов или точек');
-                    }
+                    if (points.length === 0) throw new Error('Не найдено полигонов или точек');
                     
                     if (target === 'from') {
                         pointsFrom = points;
@@ -1381,7 +1708,7 @@
                     }
                     
                     document.getElementById(`${target}FileName`).innerText = file.name;
-                    updateStatus(`✅ Загружено ${points.length} точек из KML в "${target === 'from' ? 'Откуда' : 'Куда'}"`);
+                    updateStatus(`✅ Загружено ${points.length} центроидов из ${polygonCount} полигонов в "${target === 'from' ? 'Откуда' : 'Куда'}"`);
                     setTimeout(() => fitBoundsToAllPoints(), 100);
                     resolve();
                     
