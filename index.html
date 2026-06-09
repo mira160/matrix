@@ -81,6 +81,73 @@
         .stat-label { font-size: 11px; color: #64748b; margin-top: 4px; }
         .leaflet-control-attribution { font-size: 8px; }
         .custom-marker { background: transparent; border: none; }
+        /* Стили для ползунка фильтра */
+#maxDistanceFilter {
+    -webkit-appearance: none;
+    background: #e2e8f0;
+    border-radius: 4px;
+    height: 4px;
+}
+
+#maxDistanceFilter::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #059669;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    border: 2px solid white;
+}
+
+#maxDistanceFilter::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    background: #047857;
+}
+
+#maxDistanceFilter::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #059669;
+    cursor: pointer;
+    border: 2px solid white;
+}
+/* Стили для ползунка с динамической заливкой */
+#maxDistanceFilter {
+    -webkit-appearance: none;
+    background: #e2e8f0;
+    border-radius: 4px;
+    height: 4px;
+}
+
+#maxDistanceFilter::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #059669;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    border: 2px solid white;
+    transition: transform 0.1s;
+    z-index: 2;
+    position: relative;
+}
+
+#maxDistanceFilter::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    background: #047857;
+}
+
+#maxDistanceFilter::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #059669;
+    cursor: pointer;
+    border: 2px solid white;
+}
     </style>
 </head>
 <body>
@@ -220,6 +287,24 @@
                 <canvas id="distanceChart" width="400" height="180" style="width:100%; max-height: 180px;"></canvas>
             </div>
             <div id="topDestinations" style="margin-top: 10px; font-size: 11px; color: #64748b; text-align: center;"></div>
+        </div>
+
+        <!-- Фильтр по расстоянию (над списком результатов) -->
+        <div class="section" style="padding-bottom: 8px; padding-top: 8px; border-bottom: none;">
+            <div class="d-flex align-items-center gap-3">
+                <div style="flex: 1; position: relative;">
+                    <input type="range" id="maxDistanceFilter" min="0" max="1000" step="1" value="1000" 
+                        style="width: 100%; height: 4px; -webkit-appearance: none; background: #e2e8f0; border-radius: 4px; outline: none;">
+                </div>
+                <div style="min-width: 80px; text-align: center;">
+                    <span id="maxDistanceValue" style="font-size: 13px; font-weight: 600; color: #059669;">1000</span>
+                    <span style="font-size: 11px; color: #64748b;">км</span>
+                </div>
+            </div>
+            <div class="d-flex justify-content-between mt-1 px-1">
+                <span style="font-size: 9px; color: #94a3b8;">0</span>
+                <span id="maxDistLabel" style="font-size: 9px; color: #94a3b8;">-- км</span>
+            </div>
         </div>
 
         <div class="section">
@@ -1107,6 +1192,277 @@ document.getElementById('swapPointsBtn').addEventListener('click', () => {
     // Перецентрировать карту по всем точкам
     fitBoundsToAllPoints();
 });
+
+// ========== ДИНАМИЧЕСКИЙ ФИЛЬТР С ЗАЛИВКОЙ ==========
+let originalResultsStore = [];      // хранилище оригинальных результатов
+let maxDistanceOverall = 1000;       // максимальное расстояние среди всех маршрутов
+
+// Функция обновления максимального значения ползунка
+function updateSliderMaxDistance() {
+    // Находим максимальное расстояние среди всех успешных маршрутов
+    const sourceResults = originalResultsStore.length > 0 ? originalResultsStore : results;
+    const distances = sourceResults.filter(r => r.status === 'OK').map(r => r.distance);
+    
+    if (distances.length > 0) {
+        maxDistanceOverall = Math.ceil(Math.max(...distances));
+        // Округляем вверх до десятков для красоты
+        maxDistanceOverall = Math.ceil(maxDistanceOverall / 10) * 10;
+    } else {
+        maxDistanceOverall = 1000;
+    }
+    
+    const slider = document.getElementById('maxDistanceFilter');
+    const maxLabel = document.getElementById('maxDistLabel');
+    
+    if (slider) {
+        slider.max = maxDistanceOverall;
+        // Если текущее значение больше максимума, сбрасываем
+        if (parseInt(slider.value) > maxDistanceOverall) {
+            slider.value = maxDistanceOverall;
+            document.getElementById('maxDistanceValue').innerText = maxDistanceOverall;
+        }
+    }
+    
+    if (maxLabel) {
+        maxLabel.innerText = `≤ ${maxDistanceOverall} км`;
+    }
+    
+    // Обновляем заливку
+    updateSliderFill();
+}
+
+// Функция обновления заливки ползунка
+function updateSliderFill() {
+    const slider = document.getElementById('maxDistanceFilter');
+    if (!slider) return;
+    
+    const value = parseInt(slider.value);
+    const max = parseInt(slider.max);
+    const percent = (value / max) * 100;
+    
+    slider.style.background = `linear-gradient(90deg, #059669 0%, #059669 ${percent}%, #e2e8f0 ${percent}%, #e2e8f0 100%)`;
+}
+
+// Основная функция фильтрации
+function filterResultsByDistance() {
+    const maxDist = parseInt(document.getElementById('maxDistanceFilter').value);
+    document.getElementById('maxDistanceValue').innerText = maxDist;
+    updateSliderFill();
+    
+    // При первом фильтре сохраняем оригиналы
+    if (originalResultsStore.length === 0 && results.length > 0) {
+        originalResultsStore = JSON.parse(JSON.stringify(results));
+        updateSliderMaxDistance();
+    }
+    
+    const sourceResults = originalResultsStore.length > 0 ? originalResultsStore : results;
+    
+    // Фильтруем результаты
+    const filtered = sourceResults.filter(r => {
+        if (r.status !== 'OK') return false;
+        return r.distance <= maxDist;
+    });
+    
+    // Обновляем массив результатов
+    results.length = 0;
+    results.push(...filtered);
+    
+    // ===== ОБНОВЛЯЕМ МАРШРУТЫ НА КАРТЕ =====
+    // Удаляем все текущие маршруты с карты
+    routeLines.forEach(line => {
+        if (map && map.hasLayer(line)) map.removeLayer(line);
+    });
+    routeLines = [];
+    
+    // Рисуем только отфильтрованные маршруты
+    filtered.forEach(r => {
+        if (r.status === 'OK' && r.geometry) {
+            const line = drawSingleRoute(r.geometry, '#059669', 3);
+            if (line) routeLines.push(line);
+        }
+    });
+    
+    // Пересчитываем ближайшие маршруты для отфильтрованных
+    const nearestMap = new Map();
+    if (calculationMode === 'matrix') {
+        const routesByFrom = new Map();
+        results.forEach((r, idx) => {
+            if (r.status === 'OK') {
+                if (!routesByFrom.has(r.from)) routesByFrom.set(r.from, []);
+                routesByFrom.get(r.from).push({ index: idx, distance: r.distance });
+            }
+        });
+        routesByFrom.forEach((routes, from) => {
+            let minDist = Infinity, minIndex = -1;
+            routes.forEach(route => {
+                if (route.distance < minDist) {
+                    minDist = route.distance;
+                    minIndex = route.index;
+                }
+            });
+            if (minIndex !== -1) nearestMap.set(from, minIndex);
+        });
+    }
+    
+    // Обновляем UI список результатов
+    const resultsContainer = document.getElementById('resultsList');
+    const badge = document.getElementById('resultsBadge');
+    badge.innerText = results.length;
+    
+    if (!results.length) {
+        resultsContainer.innerHTML = `<div style="text-align: center; color: #94a3b8; padding: 20px;">
+            <i class="fas fa-filter"></i><br>
+            Нет маршрутов короче ${maxDist} км
+        </div>`;
+    } else {
+        resultsContainer.innerHTML = results.map((r, idx) => {
+            if (r.status === 'OK') {
+                const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from) === idx;
+                const nearestClass = isNearest ? 'result-nearest' : '';
+                const nearestBadgeHtml = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
+                const cost = calculateRouteCost(r.distance);
+                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div>
+                                    <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
+                                    ${nearestBadgeHtml}
+                                </div>
+                            </div>
+                            <div class="distance-info">
+                                📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин
+                                <span style="display: inline-block; margin-left: 12px; background: #05966920; padding: 2px 8px; border-radius: 20px;">
+                                    💰 ${formatRubles(cost.total)}
+                                </span>
+                            </div>
+                            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">
+                                ⛽ топливо: ${formatRubles(cost.fuel)} | 📦 доп: ${formatRubles(cost.extra)}
+                            </div>
+                        </div>`;
+            } else {
+                return `<div class="result-item result-error">❌ ${escapeHtml(r.from)} → ${escapeHtml(r.to)}: ${r.status}</div>`;
+            }
+        }).join('');
+    }
+    
+    // Обновляем статистику
+    updateStatistics();
+    
+    const sourceCount = originalResultsStore.length > 0 ? originalResultsStore.length : results.length;
+    updateStatus(`🔍 Показано ${results.length} маршрутов из ${sourceCount} (до ${maxDist} км). Максимальное расстояние: ${maxDistanceOverall} км`);
+}
+
+// Сброс фильтра
+function resetDistanceFilter() {
+    if (originalResultsStore.length > 0) {
+        // Восстанавливаем результаты
+        results = JSON.parse(JSON.stringify(originalResultsStore));
+        originalResultsStore = [];
+        
+        // Восстанавливаем маршруты на карте
+        routeLines.forEach(line => {
+            if (map && map.hasLayer(line)) map.removeLayer(line);
+        });
+        routeLines = [];
+        
+        results.forEach(r => {
+            if (r.status === 'OK' && r.geometry) {
+                const line = drawSingleRoute(r.geometry, '#059669', 3);
+                if (line) routeLines.push(line);
+            }
+        });
+        
+        // Сбрасываем ползунок на максимум
+        document.getElementById('maxDistanceFilter').value = maxDistanceOverall;
+        document.getElementById('maxDistanceValue').innerText = maxDistanceOverall;
+        updateSliderFill();
+        
+        // Пересчитываем ближайшие
+        const nearestMap = new Map();
+        if (calculationMode === 'matrix') {
+            const routesByFrom = new Map();
+            results.forEach((r, idx) => {
+                if (r.status === 'OK') {
+                    if (!routesByFrom.has(r.from)) routesByFrom.set(r.from, []);
+                    routesByFrom.get(r.from).push({ index: idx, distance: r.distance });
+                }
+            });
+            routesByFrom.forEach((routes, from) => {
+                let minDist = Infinity, minIndex = -1;
+                routes.forEach(route => {
+                    if (route.distance < minDist) {
+                        minDist = route.distance;
+                        minIndex = route.index;
+                    }
+                });
+                if (minIndex !== -1) nearestMap.set(from, minIndex);
+            });
+        }
+        
+        // Обновляем UI
+        const resultsContainer = document.getElementById('resultsList');
+        document.getElementById('resultsBadge').innerText = results.length;
+        
+        resultsContainer.innerHTML = results.map((r, idx) => {
+            if (r.status === 'OK') {
+                const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from) === idx;
+                const nearestClass = isNearest ? 'result-nearest' : '';
+                const nearestBadgeHtml = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
+                const cost = calculateRouteCost(r.distance);
+                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div>
+                                    <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
+                                    ${nearestBadgeHtml}
+                                </div>
+                            </div>
+                            <div class="distance-info">
+                                📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин
+                                <span style="display: inline-block; margin-left: 12px; background: #05966920; padding: 2px 8px; border-radius: 20px;">
+                                    💰 ${formatRubles(cost.total)}
+                                </span>
+                            </div>
+                            <div style="font-size: 9px; color: #64748b; margin-top: 2px;">
+                                ⛽ топливо: ${formatRubles(cost.fuel)} | 📦 доп: ${formatRubles(cost.extra)}
+                            </div>
+                        </div>`;
+            } else {
+                return `<div class="result-item result-error">❌ ${escapeHtml(r.from)} → ${escapeHtml(r.to)}: ${r.status}</div>`;
+            }
+        }).join('');
+        
+        updateStatistics();
+        updateStatus(`✅ Фильтр сброшен. Показано ${results.length} маршрутов, маршруты на карте восстановлены`);
+    } else {
+        // Если оригиналов нет, просто сбрасываем на максимум
+        document.getElementById('maxDistanceFilter').value = maxDistanceOverall;
+        document.getElementById('maxDistanceValue').innerText = maxDistanceOverall;
+        updateSliderFill();
+        updateStatus(`Фильтр сброшен (максимальное расстояние ${maxDistanceOverall} км)`);
+    }
+}
+
+// Инициализация ползунка
+function initDistanceFilter() {
+    const slider = document.getElementById('maxDistanceFilter');
+    if (slider) {
+        slider.addEventListener('input', function() {
+            filterResultsByDistance();
+        });
+    }
+}
+
+// Запускаем инициализацию
+setTimeout(initDistanceFilter, 500);
+// Обновляем максимальное расстояние для фильтра после расчёта
+originalResultsStore = [];
+updateSliderMaxDistance();
+document.getElementById('maxDistanceFilter').value = maxDistanceOverall;
+document.getElementById('maxDistanceValue').innerText = maxDistanceOverall;
+updateSliderFill();
+filterResultsByDistance();  // применяем фильтр (показывает всё, так как ползунок на максимуме)
+
 </script>
+
+
 </body>
 </html>
