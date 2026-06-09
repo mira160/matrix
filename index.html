@@ -148,6 +148,26 @@
     cursor: pointer;
     border: 2px solid white;
 }
+/* Стили для активных кнопок экспорта */
+.btn-success {
+    background: #059669 !important;
+    color: white !important;
+}
+.btn-success:hover:not(:disabled) {
+    background: #047857 !important;
+    transform: translateY(-1px);
+}
+.btn-secondary:disabled {
+    background: #e2e8f0 !important;
+    color: #94a3b8 !important;
+    cursor: not-allowed;
+}
+/* Запрещаем курсор-палец на неактивных кнопках */
+.btn-secondary:disabled {
+    cursor: not-allowed !important;
+    pointer-events: auto !important;
+    opacity: 0.6;
+}
     </style>
 </head>
 <body>
@@ -249,12 +269,21 @@
                 <input type="number" id="extraCost" value="0" step="0.5" min="0" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:12px;">
                 <div style="font-size: 10px; color: #64748b; margin-top: 4px;">Амортизация, ЗП водителя, прочее</div>
             </div>
-            <div class="settings-row">
-                <label><i class="fas fa-calculator"></i> Итого стоимость (руб/км)</label>
-                <div style="background: #059669; padding: 8px 12px; border-radius: 12px; font-size: 16px; font-weight: 700; color: white; text-align: center;" id="totalCostPerKm">5.50</div>
-            </div>
-            <button class="btn btn-primary" id="calcBtn"><i class="fas fa-play"></i> НАЧАТЬ РАСЧЕТ</button>
-            <button class="btn btn-secondary" id="exportBtn" disabled><i class="fas fa-download"></i> ЭКСПОРТ В EXCEL</button>
+        <div class="settings-row">
+            <label><i class="fas fa-calculator"></i> Итого стоимость (руб/км)</label>
+            <div style="font-size: 16px; font-weight: 700; color: #059669; text-align: left; padding: 4px 0;" id="totalCostPerKm">5.50</div>
+        </div>
+        <button class="btn btn-primary" id="calcBtn"><i class="fas fa-play"></i> НАЧАТЬ РАСЧЕТ</button>
+<button class="btn btn-secondary" id="exportBtn" disabled><i class="fas fa-download"></i> ЭКСПОРТ В EXCEL</button>
+
+<div class="d-flex gap-2 mt-2">
+    <button class="btn btn-secondary" id="exportKmlBtn" disabled style="flex: 1;">
+        <i class="fas fa-map-marked-alt"></i> ЭКСПОРТ ВСЕХ В KML
+    </button>
+    <button class="btn btn-secondary" id="exportSelectedKmlBtn" disabled style="flex: 1;">
+        <i class="fas fa-draw-polygon"></i> ЭКСПОРТ ВЫБРАННОГО
+    </button>
+</div>
         </div>
 
         <div class="section" id="progressSection" style="display: none;">
@@ -441,6 +470,70 @@
             updateStatus('Подложка: Схема (OSM)');
         }
     }
+
+// Инициализация кнопок экспорта KML
+function initKmlExportButtons() {
+    const exportAllBtn = document.getElementById('exportKmlBtn');
+    const exportSelectedBtn = document.getElementById('exportSelectedKmlBtn');
+    
+    if (exportAllBtn) {
+        exportAllBtn.addEventListener('click', exportAllToKML);
+    }
+    if (exportSelectedBtn) {
+        exportSelectedBtn.addEventListener('click', exportSelectedToKML);
+    }
+}
+
+// Функция обновления состояния кнопок экспорта
+function updateExportButtonsState() {
+    const exportExcelBtn = document.getElementById('exportBtn');
+    const exportKmlAllBtn = document.getElementById('exportKmlBtn');
+    const exportKmlSelectedBtn = document.getElementById('exportSelectedKmlBtn');
+    
+    const hasResults = results.length > 0 && results.some(r => r.status === 'OK');
+    
+    // Excel кнопка
+    if (exportExcelBtn) {
+        exportExcelBtn.disabled = !hasResults;
+        if (hasResults) {
+            exportExcelBtn.classList.remove('btn-secondary');
+            exportExcelBtn.classList.add('btn-success');
+        } else {
+            exportExcelBtn.classList.remove('btn-success');
+            exportExcelBtn.classList.add('btn-secondary');
+        }
+    }
+    
+    // KML все маршруты
+    if (exportKmlAllBtn) {
+        exportKmlAllBtn.disabled = !hasResults;
+        if (hasResults) {
+            exportKmlAllBtn.classList.remove('btn-secondary');
+            exportKmlAllBtn.classList.add('btn-success');
+        } else {
+            exportKmlAllBtn.classList.remove('btn-success');
+            exportKmlAllBtn.classList.add('btn-secondary');
+        }
+    }
+    
+    // KML выбранный маршрут (отдельно, зависит от выделения)
+    const hasSelected = window.currentHighlightedIndex !== undefined && window.currentHighlightedIndex !== -1 && 
+                        results[window.currentHighlightedIndex] && results[window.currentHighlightedIndex].status === 'OK';
+    
+    if (exportKmlSelectedBtn) {
+        exportKmlSelectedBtn.disabled = !hasSelected;
+        if (hasSelected) {
+            exportKmlSelectedBtn.classList.remove('btn-secondary');
+            exportKmlSelectedBtn.classList.add('btn-success');
+        } else {
+            exportKmlSelectedBtn.classList.remove('btn-success');
+            exportKmlSelectedBtn.classList.add('btn-secondary');
+        }
+    }
+}
+
+// Вызываем после загрузки
+setTimeout(initKmlExportButtons, 500);
     
     // ========== ВЫБОР ТОЧКИ С АДРЕСОМ ==========
     async function setSelectedPoint(lng, lat, customName = null) {
@@ -691,6 +784,10 @@
             if (map.hasLayer(highlightLine)) map.removeLayer(highlightLine); 
             highlightLine = null; 
         }
+        // Сбрасываем выделенный маршрут
+        window.currentHighlightedIndex = -1;
+        window.currentHighlightedRoute = null;
+        updateExportButtonsState();
     }
     
     function drawSingleRoute(geometry, color = '#059669', width = 4) {
@@ -701,18 +798,31 @@
         return polyline;
     }
     
-    function highlightRoute(geometry, fromCoord, toCoord) {
-        if (highlightLine) { 
-            if (map.hasLayer(highlightLine)) map.removeLayer(highlightLine); 
-            highlightLine = null; 
-        }
-        if (!geometry || geometry.length < 2) return;
-        const latlngs = geometry.map(coord => [coord[1], coord[0]]);
-        highlightLine = L.polyline(latlngs, { color: '#2563eb', weight: 8, opacity: 0.95 }).addTo(map);
-        const bounds = L.latLngBounds(latlngs);
-        map.fitBounds(bounds, { padding: [80, 80] });
-        updateStatus(`📍 Приближено к маршруту`);
+function highlightRoute(geometry, fromCoord, toCoord, routeIndex) {
+    if (highlightLine) {
+        map.removeLayer(highlightLine);
+        highlightLine = null;
     }
+    if (!geometry || geometry.length < 2) return;
+    
+    const latlngs = geometry.map(coord => [coord[1], coord[0]]);
+    highlightLine = L.polyline(latlngs, {
+        color: '#2563eb',
+        weight: 8,
+        opacity: 0.95
+    }).addTo(map);
+    
+    // Запоминаем выбранный маршрут для экспорта
+    window.currentHighlightedRoute = { geometry, fromCoord, toCoord, index: routeIndex };
+    window.currentHighlightedIndex = routeIndex;
+    
+    // Обновляем состояние кнопок
+    updateExportButtonsState();
+    
+    const bounds = L.latLngBounds(latlngs);
+    map.fitBounds(bounds, { padding: [80, 80] });
+    updateStatus(`📍 Маршрут выделен синим, можно экспортировать в KML`);
+}
     
     // ========== ОСНОВНОЙ РАСЧЕТ ==========
     document.getElementById('calcBtn').addEventListener('click', async () => {
@@ -838,7 +948,7 @@
                     const nearestClass = isNearest ? 'result-nearest' : '';
                     const nearestBadge = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
                     const cost = calculateRouteCost(r.distance);
-                    return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                    return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}], ${idx})">
                                 <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
                                 ${nearestBadge}
                                 <div class="distance-info">
@@ -858,6 +968,7 @@
         }
         
         updateStatistics();
+        updateExportButtonsState();
         exportBtn.disabled = results.length === 0;
         calcBtn.disabled = false;
         abortBtn.style.display = 'none';
@@ -867,6 +978,7 @@
     });
     
     window.highlightRoute = highlightRoute;
+
     
     // ========== ЭКСПОРТ В EXCEL ==========
     document.getElementById('exportBtn').addEventListener('click', () => {
@@ -1321,7 +1433,7 @@ function filterResultsByDistance() {
                 const nearestClass = isNearest ? 'result-nearest' : '';
                 const nearestBadgeHtml = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
                 const cost = calculateRouteCost(r.distance);
-                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}], ${idx})">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
                                     <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
@@ -1408,7 +1520,7 @@ function resetDistanceFilter() {
                 const nearestClass = isNearest ? 'result-nearest' : '';
                 const nearestBadgeHtml = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
                 const cost = calculateRouteCost(r.distance);
-                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}])">
+                return `<div class="result-item result-success ${nearestClass}" data-route-index="${idx}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, [${r.fromCoord[0]}, ${r.fromCoord[1]}], [${r.toCoord[0]}, ${r.toCoord[1]}], ${idx})">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
                                     <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
@@ -1453,13 +1565,129 @@ function initDistanceFilter() {
 
 // Запускаем инициализацию
 setTimeout(initDistanceFilter, 500);
-// Обновляем максимальное расстояние для фильтра после расчёта
-originalResultsStore = [];
-updateSliderMaxDistance();
-document.getElementById('maxDistanceFilter').value = maxDistanceOverall;
-document.getElementById('maxDistanceValue').innerText = maxDistanceOverall;
-updateSliderFill();
-filterResultsByDistance();  // применяем фильтр (показывает всё, так как ползунок на максимуме)
+
+
+// ========== ЭКСПОРТ В KML (ИСПРАВЛЕННЫЙ - правильный порядок координат) ==========
+
+// Функция генерации KML для одного маршрута (координаты: долгота, широта)
+function generateKMLForRoute(route, index) {
+    if (!route.geometry || route.geometry.length < 2) return '';
+    
+    // ВАЖНО: KML требует порядок "долгота, широта, высота"
+    // route.geometry хранит [lng, lat], используем напрямую
+    const coordinates = route.geometry.map(coord => `${coord[0]},${coord[1]},0`).join(' ');
+    const cost = calculateRouteCost(route.distance);
+    
+    return `  <Placemark>
+    <name>Маршрут #${index + 1}: ${escapeXml(route.from)} → ${escapeXml(route.to)}</name>
+    <description>
+      <![CDATA[
+        <strong>Расстояние:</strong> ${route.distance.toFixed(2)} км<br/>
+        <strong>Время:</strong> ${Math.round(route.duration)} мин<br/>
+        <strong>Стоимость:</strong> ${formatRubles(cost.total)}<br/>
+        <strong>Топливо:</strong> ${formatRubles(cost.fuel)}<br/>
+        <strong>Доп. расходы:</strong> ${formatRubles(cost.extra)}
+      ]]>
+    </description>
+    <styleUrl>#routeStyle</styleUrl>
+    <LineString>
+      <tessellate>1</tessellate>
+      <coordinates>${coordinates}</coordinates>
+    </LineString>
+  </Placemark>`;
+}
+
+// Функция генерации полного KML файла
+function generateKML(resultsToExport, title = "Маршруты") {
+    let kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(title)}</name>
+    <description>Экспорт маршрутов из калькулятора расстояний</description>
+    
+    <!-- Стиль для линий -->
+    <Style id="routeStyle">
+      <LineStyle>
+        <color>ff669e05</color>
+        <width>4</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>7f00ff00</color>
+      </PolyStyle>
+    </Style>
+    
+    <Style id="routeStyleHighlight">
+      <LineStyle>
+        <color>ffeb3b25</color>
+        <width>6</width>
+      </LineStyle>
+    </Style>`;
+    
+    resultsToExport.forEach((route, idx) => {
+        if (route.status === 'OK' && route.geometry) {
+            kml += generateKMLForRoute(route, idx);
+        }
+    });
+    
+    kml += `
+  </Document>
+</kml>`;
+    
+    return kml;
+}
+
+// Экспорт всех маршрутов в KML
+function exportAllToKML() {
+    if (!results.length) {
+        updateStatus('Нет маршрутов для экспорта', true);
+        return;
+    }
+    
+    const okResults = results.filter(r => r.status === 'OK');
+    if (!okResults.length) {
+        updateStatus('Нет успешных маршрутов для экспорта', true);
+        return;
+    }
+    
+    const kml = generateKML(okResults, `Маршруты_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`);
+    downloadFile(kml, `маршруты_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.kml`, 'application/vnd.google-earth.kml+xml');
+    updateStatus(`✅ Экспортировано ${okResults.length} маршрутов в KML (правильный порядок координат: долгота, широта)`);
+}
+
+// Экспорт выделенного маршрута
+function exportSelectedToKML() {
+    // Используем window.currentHighlightedIndex вместо currentHighlightedIndex
+    if (window.currentHighlightedIndex === undefined || window.currentHighlightedIndex === -1 || 
+        !results[window.currentHighlightedIndex] || results[window.currentHighlightedIndex].status !== 'OK') {
+        updateStatus('❌ Сначала выделите маршрут кликом по результату', true);
+        return;
+    }
+    
+    const kml = generateKML([results[window.currentHighlightedIndex]], `Маршрут_${results[window.currentHighlightedIndex].from}_→_${results[window.currentHighlightedIndex].to}`);
+    downloadFile(kml, `маршрут_${results[window.currentHighlightedIndex].from}_→_${results[window.currentHighlightedIndex].to}.kml`, 'application/vnd.google-earth.kml+xml');
+    updateStatus(`✅ Экспортирован маршрут: ${results[window.currentHighlightedIndex].from} → ${results[window.currentHighlightedIndex].to} (правильный порядок координат)`);
+}
+
+// Вспомогательная функция скачивания файла
+function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+// Экранирование XML для KML
+function escapeXml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
 
 </script>
 
