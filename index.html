@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Калькулятор матрицы расстояний | Полное достроение до точек</title>
+    <title>Калькулятор матрицы расстояний | Полное достроение + Альтернативные маршруты</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
@@ -48,6 +48,7 @@
         .result-item:hover { background: #f0fdf4; }
         .result-success { border-left: 3px solid #059669; padding-left: 10px; }
         .result-error { border-left: 3px solid #dc2626; padding-left: 10px; }
+        .result-alternative { border-left: 3px solid #94a3b8; padding-left: 10px; background: #f8fafc; }
         .badge { display: inline-block; background: #e2e8f0; padding: 2px 8px; border-radius: 20px; font-size: 10px; margin-left: 8px; }
         .point-card { background: linear-gradient(135deg, #059669, #047857); border-radius: 16px; padding: 16px; margin-bottom: 20px; color: white; }
         .point-card h4 { font-size: 14px; margin-bottom: 6px; word-break: break-word; }
@@ -74,6 +75,7 @@
         .result-nearest { background: #fef3c7; border-left: 4px solid #f59e0b; }
         .result-nearest:hover { background: #fde68a; }
         .nearest-badge { display: inline-block; background: #f59e0b; color: #000000; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; margin-left: 8px; }
+        .alternative-badge { display: inline-block; background: #94a3b8; color: white; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; margin-left: 8px; }
         .distance-info { font-size: 11px; color: #64748b; margin-top: 4px; }
         .stats-grid { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
         .stat-card { flex: 1; border-radius: 12px; padding: 12px; text-align: center; }
@@ -99,6 +101,14 @@
         .legend .road { background: #059669; }
         .legend .straight { background: #8b5cf6; border-top: 3px dashed #8b5cf6; }
         .legend .straight-start { background: #f59e0b; border-top: 3px dashed #f59e0b; }
+        .legend .alternative { background: #94a3b8; border-top: 3px dashed #94a3b8; }
+        .result-tabs { display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
+        .result-tab { padding: 8px 16px; cursor: pointer; font-size: 13px; border-radius: 8px 8px 0 0; transition: all 0.2s; }
+        .result-tab.active { background: #059669; color: white; }
+        .result-tab:not(.active):hover { background: #f1f5f9; }
+        .alternative-section { display: none; }
+        .alternative-section.active { display: block; }
+        .alternative-header { font-size: 11px; color: #64748b; margin-top: 4px; padding-left: 10px; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -106,7 +116,7 @@
     <div class="panel">
         <div style="padding: 20px; background: #059669; color: white;">
             <h3><i class="fas fa-route"></i> Калькулятор расстояний</h3>
-            <p style="font-size: 12px; opacity: 0.9;">Матрица маршрутов | OSRM | Полное достроение до точек | Excel/KML</p>
+            <p style="font-size: 12px; opacity: 0.9;">Матрица маршрутов | OSRM | Полное достроение | Альтернативные маршруты</p>
         </div>
 
         <div class="section" style="background: #f0fdf4;">
@@ -163,6 +173,14 @@
                     <i class="fas fa-ruler-combined"></i> Полное достроение до точек (от точки до дороги и от дороги до точки)
                 </label>
                 <i class="fas fa-info-circle info-icon" title="Добавляет прямые линии: от точки Откуда до дороги (оранжевая пунктирная) и от дороги до точки Куда (фиолетовая пунктирная). Общее расстояние = прямая от Откуда + дорога + прямая до Куда"></i>
+            </div>
+            
+            <div class="checkbox-row" style="background: #f1f5f9; border-color: #cbd5e1;">
+                <input type="checkbox" id="alternativesCheckbox">
+                <label for="alternativesCheckbox" style="color: #1e293b;">
+                    <i class="fas fa-code-branch"></i> Запрашивать альтернативные маршруты (серые пунктирные линии)
+                </label>
+                <i class="fas fa-info-circle info-icon" title="OSRM может предложить альтернативные пути при наличии развязок и объездов. Альтернативы отображаются серым пунктиром на карте"></i>
             </div>
             
             <div class="mode-buttons">
@@ -258,24 +276,26 @@
             <div id="topDestinations" style="margin-top: 10px; font-size: 11px; color: #64748b; text-align: center;"></div>
         </div>
 
-<div class="section" style="padding-bottom: 8px; padding-top: 8px; border-bottom: none;">
-    <input type="range" id="maxDistanceFilter" min="0" max="1000" step="1" value="1000" style="width: 100%; height: 4px; -webkit-appearance: none; background: #e2e8f0; border-radius: 4px; margin-bottom: 8px;">
-    <div style="text-align: center;">
-        <span style="font-size: 11px; color: #64748b;">Фильтр: до </span>
-        <span id="maxDistanceValue" style="font-size: 13px; font-weight: 600; color: #059669;">1000</span>
-        <span style="font-size: 11px; color: #64748b;"> км</span>
-        <span style="font-size: 11px; color: #94a3b8;"> (макс: <span id="maxDistLabel">--</span> км)</span>
-    </div>
-</div>
+        <div class="section" style="padding-bottom: 8px; padding-top: 8px; border-bottom: none;">
+            <input type="range" id="maxDistanceFilter" min="0" max="1000" step="1" value="1000" style="width: 100%; height: 4px; -webkit-appearance: none; background: #e2e8f0; border-radius: 4px; margin-bottom: 8px;">
+            <div style="text-align: center;">
+                <span style="font-size: 11px; color: #64748b;">Фильтр: до </span>
+                <span id="maxDistanceValue" style="font-size: 13px; font-weight: 600; color: #059669;">1000</span>
+                <span style="font-size: 11px; color: #64748b;"> км</span>
+                <span style="font-size: 11px; color: #94a3b8;"> (макс: <span id="maxDistLabel">--</span> км)</span>
+            </div>
+        </div>
 
         <div class="section">
             <div class="section-title"><i class="fas fa-list"></i> Результаты <span id="resultsBadge" class="badge">0</span></div>
-            <div class="results-area" id="resultsList">
-                <div style="text-align: center; color: #94a3b8; padding: 20px;">
-                    <i class="fas fa-info-circle"></i><br>
-                    Загрузите данные и нажмите "Начать расчет"
-                </div>
+            
+            <div class="result-tabs" id="resultTabs">
+                <div class="result-tab active" data-tab="main">📋 Основные маршруты</div>
+                <div class="result-tab" data-tab="alternatives">🔄 Альтернативные маршруты <span id="altCountBadge" class="badge">0</span></div>
             </div>
+            
+            <div id="mainResults" class="results-area"></div>
+            <div id="alternativeResults" class="results-area alternative-section"></div>
         </div>
 
         <div class="status-bar">
@@ -295,9 +315,10 @@
             <button class="control-btn" id="swapPointsBtn" title="Поменять местами Откуда и Куда"><i class="fas fa-exchange-alt"></i></button>
         </div>
         <div class="legend">
-            <div><span class="road" style="background: #059669; width: 20px; height: 3px; display: inline-block;"></span> Маршрут по дорогам</div>
+            <div><span class="road" style="background: #059669; width: 20px; height: 3px; display: inline-block;"></span> Маршрут по дорогам (основной)</div>
             <div><span class="straight-start" style="border-top: 3px dashed #f59e0b; width: 20px; height: 3px; display: inline-block;"></span> Прямая от точки "Откуда" до дороги</div>
             <div><span class="straight" style="border-top: 3px dashed #8b5cf6; width: 20px; height: 3px; display: inline-block;"></span> Прямая от дороги до точки "Куда"</div>
+            <div><span style="border-top: 4px dashed #ea580c; width: 20px; height: 4px; display: inline-block;"></span> Альтернативный маршрут (оранжевый)</div>
         </div>
     </div>
 </div>
@@ -308,9 +329,11 @@
     let pointsFrom = [];
     let pointsTo = [];
     let results = [];
+    let alternativeRoutesStore = []; // { from, to, alternatives: [{geometry, distanceKm, durationMin}] }
     let routeLines = [];
-    let straightStartLines = []; // оранжевые линии (от точки Откуда до дороги)
-    let straightEndLines = [];   // фиолетовые линии (от дороги до точки Куда)
+    let altRouteLines = [];
+    let straightStartLines = [];
+    let straightEndLines = [];
     let highlightLine = null;
     let selectedPoint = null;
     let currentMarker = null;
@@ -326,6 +349,9 @@
     let currentTileLayer = null;
     let streetTile = null;
     let satelliteTile = null;
+    let currentHighlightedIndex = -1;
+    let originalResultsStore = [];
+    let maxDistanceOverall = 1000;
     
     // ========== РАСЧЕТ РАССТОЯНИЯ ПО ПРЯМОЙ ==========
     function haversineDistance(lon1, lat1, lon2, lat2) {
@@ -340,7 +366,6 @@
     }
     
     // ========== ПОЛНОЕ ДОСТРОЕНИЕ (С ОБЕИХ СТОРОН) ==========
-    // Находит ближайшую точку на маршруте к заданной точке
     function findNearestPointOnRoute(routeGeometry, targetLon, targetLat) {
         if (!routeGeometry || routeGeometry.length === 0) return null;
         let minDist = Infinity;
@@ -357,7 +382,6 @@
         return { point: nearestPoint, distance: minDist, index: nearestIndex };
     }
     
-    // Создает прямую линию между двумя точками с интерполяцией
     function createStraightLine(startLon, startLat, endLon, endLat) {
         const distance = haversineDistance(startLon, startLat, endLon, endLat);
         const steps = Math.max(2, Math.min(30, Math.ceil(distance / 0.05)));
@@ -372,25 +396,19 @@
         return points;
     }
     
-    // Полное достроение маршрута (от точки Откуда до дороги, дорога, от дороги до точки Куда)
     function extendFullRoute(osrmGeometry, startLon, startLat, endLon, endLat) {
         if (!osrmGeometry || osrmGeometry.length === 0) return null;
         
-        // Находим ближайшие точки на маршруте к начальной и конечной точкам
         const nearestStart = findNearestPointOnRoute(osrmGeometry, startLon, startLat);
         const nearestEnd = findNearestPointOnRoute(osrmGeometry, endLon, endLat);
         
         if (!nearestStart || !nearestEnd) return null;
         
-        // Прямая от точки Откуда до ближайшей точки на маршруте
         const straightStartPoints = createStraightLine(startLon, startLat, nearestStart.point[0], nearestStart.point[1]);
         const straightStartDistance = nearestStart.distance;
-        
-        // Прямая от ближайшей точки на маршруте до точки Куда
         const straightEndPoints = createStraightLine(nearestEnd.point[0], nearestEnd.point[1], endLon, endLat);
         const straightEndDistance = nearestEnd.distance;
         
-        // Часть маршрута между ближайшими точками (с обеих сторон)
         let routePart = [];
         const startIdx = nearestStart.index;
         const endIdx = nearestEnd.index;
@@ -401,9 +419,7 @@
             routePart = osrmGeometry.slice(endIdx, startIdx + 1).reverse();
         }
         
-        // Полная геометрия: прямая от старта + маршрут + прямая до цели
         const fullGeometry = [...straightStartPoints, ...routePart, ...straightEndPoints];
-        
         const routeDistance = calculateGeometryDistance(routePart);
         const totalDistance = straightStartDistance + routeDistance + straightEndDistance;
         
@@ -427,6 +443,110 @@
             total += haversineDistance(geometry[i][0], geometry[i][1], geometry[i+1][0], geometry[i+1][1]);
         }
         return total;
+    }
+    
+    // ========== ЗАПРОС МАРШРУТА С АЛЬТЕРНАТИВАМИ ==========
+    async function fetchRouteWithAlternatives(lon1, lat1, lon2, lat2, vehicle) {
+        const url = `https://router.project-osrm.org/route/v1/${vehicle}/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson&alternatives=true&steps=false`;
+        try {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 30000);
+            const resp = await fetch(url, { signal: controller.signal });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            if (data.code === 'Ok' && data.routes && data.routes.length) {
+                const routes = data.routes.map(route => ({
+                    distanceKm: route.distance / 1000,
+                    durationMin: route.duration / 60,
+                    geometry: route.geometry.coordinates
+                }));
+                return { main: routes[0], alternatives: routes.slice(1) };
+            }
+            return null;
+        } catch(e) { console.warn(e); return null; }
+    }
+    
+    async function fetchRouteSimple(lon1, lat1, lon2, lat2, vehicle) {
+        const url = `https://router.project-osrm.org/route/v1/${vehicle}/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+        try {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 25000);
+            const resp = await fetch(url, { signal: controller.signal });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            if (data.code === 'Ok' && data.routes && data.routes[0]) {
+                return {
+                    distanceKm: data.routes[0].distance / 1000,
+                    durationMin: data.routes[0].duration / 60,
+                    geometry: data.routes[0].geometry.coordinates
+                };
+            }
+            return null;
+        } catch { return null; }
+    }
+    
+    // ========== ОТРИСОВКА МАРШРУТОВ ==========
+    function clearMapRoutes() {
+        routeLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
+        altRouteLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
+        straightStartLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
+        straightEndLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
+        routeLines = [];
+        altRouteLines = [];
+        straightStartLines = [];
+        straightEndLines = [];
+        if (highlightLine) { 
+            if (map.hasLayer(highlightLine)) map.removeLayer(highlightLine); 
+            highlightLine = null; 
+        }
+        currentHighlightedIndex = -1;
+        updateExportButtonsState();
+    }
+    
+function drawFullRoute(extendedData, isAlternative = false) {
+    if (!extendedData || !extendedData.geometry) return;
+    const latLngs = extendedData.geometry.map(coord => [coord[1], coord[0]]);
+    
+    if (isAlternative) {
+        // ЯРКИЙ ЗАМЕТНЫЙ АЛЬТЕРНАТИВНЫЙ МАРШРУТ
+        const altLine = L.polyline(latLngs, { 
+            color: '#ea580c',     // Ярко-оранжевый (заметный)
+            weight: 4,            // Толстая линия
+            opacity: 0.95,        // Почти непрозрачный
+            dashArray: '10, 6'    // Крупный пунктир
+        }).addTo(map);
+        altRouteLines.push(altLine);
+    } else {
+        // Основной маршрут - зелёный
+        const routeLine = L.polyline(latLngs, { color: '#059669', weight: 3.5, opacity: 0.85 }).addTo(map);
+        routeLines.push(routeLine);
+        
+        // Прямые линии при достроении
+        if (extendedData.straightStartDistance > 0.01 && extendedData.originalStartPoint && extendedData.straightStartPoint) {
+            const straightLatLngs = [
+                [extendedData.originalStartPoint[1], extendedData.originalStartPoint[0]],
+                [extendedData.straightStartPoint[1], extendedData.straightStartPoint[0]]
+            ];
+            const straightLine = L.polyline(straightLatLngs, { color: '#f59e0b', weight: 3, opacity: 0.9, dashArray: '8, 6' }).addTo(map);
+            straightStartLines.push(straightLine);
+        }
+        if (extendedData.straightEndDistance > 0.01 && extendedData.originalEndPoint && extendedData.straightEndPoint) {
+            const straightLatLngs = [
+                [extendedData.straightEndPoint[1], extendedData.straightEndPoint[0]],
+                [extendedData.originalEndPoint[1], extendedData.originalEndPoint[0]]
+            ];
+            const straightLine = L.polyline(straightLatLngs, { color: '#8b5cf6', weight: 3, opacity: 0.9, dashArray: '8, 6' }).addTo(map);
+            straightEndLines.push(straightLine);
+        }
+    }
+}    
+    function highlightRouteGeometry(geometry) {
+        if (highlightLine && map.hasLayer(highlightLine)) map.removeLayer(highlightLine);
+        if (!geometry || geometry.length < 2) return;
+        const latLngs = geometry.map(coord => [coord[1], coord[0]]);
+        highlightLine = L.polyline(latLngs, { color: '#2563eb', weight: 6, opacity: 0.95 }).addTo(map);
+        const bounds = L.latLngBounds(latLngs);
+        map.fitBounds(bounds, { padding: [80, 80] });
     }
     
     // ========== РАСЧЁТ СТОИМОСТИ ==========
@@ -725,107 +845,6 @@
         });
     });
     
-    // ========== OSRM ЗАПРОС ==========
-    async function fetchRoute(lon1, lat1, lon2, lat2, vehicle) {
-        const url = `https://router.project-osrm.org/route/v1/${vehicle}/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
-        try {
-            const controller = new AbortController();
-            setTimeout(() => controller.abort(), 25000);
-            const resp = await fetch(url, { signal: controller.signal });
-            if (!resp.ok) return null;
-            const data = await resp.json();
-            if (data.code === 'Ok' && data.routes && data.routes[0]) {
-                const route = data.routes[0];
-                return {
-                    distanceKm: route.distance / 1000,
-                    durationMin: route.duration / 60,
-                    geometry: route.geometry.coordinates
-                };
-            }
-            return null;
-        } catch { return null; }
-    }
-    
-    // ========== ОТРИСОВКА МАРШРУТОВ ==========
-    function clearMapRoutes() {
-        routeLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
-        straightStartLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
-        straightEndLines.forEach(line => { if (map.hasLayer(line)) map.removeLayer(line); });
-        routeLines = [];
-        straightStartLines = [];
-        straightEndLines = [];
-        if (highlightLine) { 
-            if (map.hasLayer(highlightLine)) map.removeLayer(highlightLine); 
-            highlightLine = null; 
-        }
-        window.currentHighlightedIndex = -1;
-        updateExportButtonsState();
-    }
-    
-    function drawFullRoute(extendedData) {
-        if (!extendedData || !extendedData.geometry) return;
-        
-        // Рисуем дорожную часть (сплошная зеленая)
-        if (extendedData.routePartGeometry && extendedData.routePartGeometry.length >= 2) {
-            const routeLatLngs = extendedData.routePartGeometry.map(coord => [coord[1], coord[0]]);
-            const routeLine = L.polyline(routeLatLngs, { color: '#059669', weight: 3, opacity: 0.8 }).addTo(map);
-            routeLines.push(routeLine);
-        } else if (extendedData.geometry.length >= 2) {
-            // Если нет отдельной части, рисуем всю геометрию
-            const allLatLngs = extendedData.geometry.map(coord => [coord[1], coord[0]]);
-            const routeLine = L.polyline(allLatLngs, { color: '#059669', weight: 3, opacity: 0.8 }).addTo(map);
-            routeLines.push(routeLine);
-        }
-        
-        // Рисуем прямую от точки Откуда (оранжевая пунктирная)
-        if (extendedData.straightStartDistance > 0.01 && extendedData.originalStartPoint && extendedData.straightStartPoint) {
-            const straightLatLngs = [
-                [extendedData.originalStartPoint[1], extendedData.originalStartPoint[0]],
-                [extendedData.straightStartPoint[1], extendedData.straightStartPoint[0]]
-            ];
-            const straightLine = L.polyline(straightLatLngs, {
-                color: '#f59e0b',
-                weight: 3,
-                opacity: 0.9,
-                dashArray: '8, 6'
-            }).addTo(map);
-            straightStartLines.push(straightLine);
-        }
-        
-        // Рисуем прямую до точки Куда (фиолетовая пунктирная)
-        if (extendedData.straightEndDistance > 0.01 && extendedData.originalEndPoint && extendedData.straightEndPoint) {
-            const straightLatLngs = [
-                [extendedData.straightEndPoint[1], extendedData.straightEndPoint[0]],
-                [extendedData.originalEndPoint[1], extendedData.originalEndPoint[0]]
-            ];
-            const straightLine = L.polyline(straightLatLngs, {
-                color: '#8b5cf6',
-                weight: 3,
-                opacity: 0.9,
-                dashArray: '8, 6'
-            }).addTo(map);
-            straightEndLines.push(straightLine);
-        }
-    }
-    
-    function highlightRoute(geometry, routeIndex, extendedData) {
-        if (highlightLine) {
-            map.removeLayer(highlightLine);
-            highlightLine = null;
-        }
-        if (!geometry || geometry.length < 2) return;
-        
-        const allLatLngs = geometry.map(coord => [coord[1], coord[0]]);
-        highlightLine = L.polyline(allLatLngs, { color: '#2563eb', weight: 6, opacity: 0.95 }).addTo(map);
-        
-        window.currentHighlightedIndex = routeIndex;
-        updateExportButtonsState();
-        
-        const bounds = L.latLngBounds(allLatLngs);
-        map.fitBounds(bounds, { padding: [80, 80] });
-        updateStatus(`📍 Маршрут выделен`);
-    }
-    
     // ========== ОСНОВНОЙ РАСЧЕТ ==========
     document.getElementById('calcBtn').addEventListener('click', async () => {
         if (isCalculating) { updateStatus('Расчет уже выполняется...'); return; }
@@ -836,13 +855,15 @@
         if (calculationMode === 'nearest' && !targets.length) { updateStatus('Для режима "Ближайшие" нужны точки "Куда"', true); return; }
         
         const extendToPoint = document.getElementById('extendToPointCheckbox').checked;
+        const useAlternatives = document.getElementById('alternativesCheckbox').checked;
         
         abortCalculation = false;
         clearLogs();
         addLog('═══════════════════════════════════════════', 'info');
         addLog('🚀 ЗАПУСК РАСЧЕТА', 'success');
         addLog(`📋 Режим: ${calculationMode === 'matrix' ? 'Матрица' : 'Ближайшие'}`, 'info');
-        addLog(`🔧 Полное достроение: ${extendToPoint ? 'ВКЛЮЧЕНО (оранжевая + фиолетовая пунктирные линии)' : 'ВЫКЛЮЧЕНО'}`, 'info');
+        addLog(`🔧 Полное достроение: ${extendToPoint ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}`, 'info');
+        addLog(`🔄 Альтернативные маршруты: ${useAlternatives ? 'ВКЛЮЧЕНО (серые пунктирные линии)' : 'ВЫКЛЮЧЕНО'}`, 'info');
         
         isCalculating = true;
         const calcBtn = document.getElementById('calcBtn');
@@ -860,12 +881,14 @@
         const nearestK = parseInt(document.getElementById('nearestCount').value);
         
         results = [];
+        alternativeRoutesStore = [];
         clearMapRoutes();
         
         let completed = 0;
         let successCount = 0;
         let errorCount = 0;
         let extendedCount = 0;
+        let altTotalCount = 0;
         const totalRequests = calculationMode === 'matrix' ? pointsFrom.length * targets.length : pointsFrom.length * targets.length;
         
         abortBtn.onclick = () => { abortCalculation = true; addLog('⏹ ПРЕРВАНО ПОЛЬЗОВАТЕЛЕМ', 'warning'); };
@@ -876,31 +899,43 @@
                 for (const to of targets) {
                     if (abortCalculation) break;
                     
-                    const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    let routeData = null;
+                    let alternatives = [];
+                    
+                    if (useAlternatives) {
+                        const resp = await fetchRouteWithAlternatives(from.lon, from.lat, to.lon, to.lat, vehicle);
+                        if (resp) {
+                            routeData = resp.main;
+                            alternatives = resp.alternatives;
+                        }
+                    } else {
+                        routeData = await fetchRouteSimple(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    }
+                    
                     completed++;
                     const percent = (completed / totalRequests) * 100;
                     progressFill.style.width = `${percent}%`;
                     progressMsg.innerText = `${completed}/${totalRequests} маршрутов (${successCount} успешно)`;
                     
-                    if (route) {
+                    if (routeData) {
                         let finalData = {
-                            geometry: route.geometry,
-                            distance: route.distanceKm,
-                            routeDistance: route.distanceKm,
+                            geometry: routeData.geometry,
+                            distance: routeData.distanceKm,
+                            routeDistance: routeData.distanceKm,
                             straightStartDistance: 0,
                             straightEndDistance: 0,
-                            routePartGeometry: route.geometry,
+                            routePartGeometry: routeData.geometry,
                             originalStartPoint: [from.lon, from.lat],
                             originalEndPoint: [to.lon, to.lat],
-                            straightStartPoint: route.geometry[0],
-                            straightEndPoint: route.geometry[route.geometry.length - 1]
+                            straightStartPoint: routeData.geometry[0],
+                            straightEndPoint: routeData.geometry[routeData.geometry.length - 1]
                         };
                         
                         if (extendToPoint) {
-                            const extended = extendFullRoute(route.geometry, from.lon, from.lat, to.lon, to.lat);
+                            const extended = extendFullRoute(routeData.geometry, from.lon, from.lat, to.lon, to.lat);
                             if (extended) {
                                 finalData = extended;
-                                finalData.routePartGeometry = route.geometry;
+                                finalData.routePartGeometry = routeData.geometry;
                                 if (extended.straightStartDistance > 0.01 || extended.straightEndDistance > 0.01) {
                                     extendedCount++;
                                     addLog(`✚ ДОСТРОЕНО: ${from.name} → ${to.name} | от точки: ${extended.straightStartDistance.toFixed(2)} км + дорога: ${extended.routeDistance.toFixed(2)} км + до точки: ${extended.straightEndDistance.toFixed(2)} км = ${extended.totalDistance.toFixed(2)} км`, 'info');
@@ -917,15 +952,15 @@
                             from: from.name,
                             to: to.name,
                             distance: finalData.totalDistance || finalData.distance,
-                            duration: route.durationMin,
+                            duration: routeData.durationMin,
                             status: 'OK',
                             fromCoord: [from.lon, from.lat],
                             toCoord: [to.lon, to.lat],
                             geometry: finalData.geometry,
-                            routePartGeometry: finalData.routePartGeometry || route.geometry,
+                            routePartGeometry: finalData.routePartGeometry || routeData.geometry,
                             wasExtended: extendToPoint && (finalData.straightStartDistance > 0.01 || finalData.straightEndDistance > 0.01),
                             straightStartDistance: finalData.straightStartDistance || 0,
-                            routeDistance: finalData.routeDistance || route.distanceKm,
+                            routeDistance: finalData.routeDistance || routeData.distanceKm,
                             straightEndDistance: finalData.straightEndDistance || 0,
                             straightStartPoint: finalData.straightStartPoint,
                             straightEndPoint: finalData.straightEndPoint,
@@ -933,7 +968,38 @@
                             originalEndPoint: finalData.originalEndPoint || [to.lon, to.lat]
                         });
                         
-                        drawFullRoute(finalData);
+                        drawFullRoute(finalData, false);
+                        
+                        // Сохраняем и рисуем альтернативы
+                        if (alternatives.length > 0) {
+                            altTotalCount += alternatives.length;
+                            const altGroup = { from: from.name, to: to.name, alternatives: [] };
+                            for (let altIdx = 0; altIdx < alternatives.length; altIdx++) {
+                                const alt = alternatives[altIdx];
+                                let altFinalData = {
+                                    geometry: alt.geometry,
+                                    distance: alt.distanceKm,
+                                    routeDistance: alt.distanceKm,
+                                    straightStartDistance: 0,
+                                    straightEndDistance: 0,
+                                    originalStartPoint: [from.lon, from.lat],
+                                    originalEndPoint: [to.lon, to.lat]
+                                };
+                                if (extendToPoint) {
+                                    const altExtended = extendFullRoute(alt.geometry, from.lon, from.lat, to.lon, to.lat);
+                                    if (altExtended) altFinalData = altExtended;
+                                }
+                                altGroup.alternatives.push({
+                                    distance: altFinalData.totalDistance || altFinalData.distance,
+                                    duration: alt.durationMin,
+                                    geometry: altFinalData.geometry,
+                                    wasExtended: extendToPoint && (altFinalData.straightStartDistance > 0.01 || altFinalData.straightEndDistance > 0.01)
+                                });
+                                drawFullRoute(altFinalData, true);
+                                addLog(`🔄 Альтернатива #${altIdx+1}: ${from.name} → ${to.name} | ${(altFinalData.totalDistance || altFinalData.distance).toFixed(2)} км`, 'info');
+                            }
+                            alternativeRoutesStore.push(altGroup);
+                        }
                     } else {
                         errorCount++;
                         results.push({ from: from.name, to: to.name, status: 'Ошибка' });
@@ -943,13 +1009,13 @@
                 }
             }
         } else {
-            // Режим ближайших
+            // Режим ближайших (без альтернатив для простоты)
             for (const from of pointsFrom) {
                 if (abortCalculation) break;
                 const distances = [];
                 for (const to of targets) {
                     if (abortCalculation) break;
-                    const route = await fetchRoute(from.lon, from.lat, to.lon, to.lat, vehicle);
+                    const route = await fetchRouteSimple(from.lon, from.lat, to.lon, to.lat, vehicle);
                     if (route) {
                         let finalData = {
                             geometry: route.geometry,
@@ -958,27 +1024,11 @@
                             straightStartDistance: 0,
                             straightEndDistance: 0
                         };
-                        
                         if (extendToPoint) {
                             const extended = extendFullRoute(route.geometry, from.lon, from.lat, to.lon, to.lat);
                             if (extended) finalData = extended;
                         }
-                        
-                        distances.push({ 
-                            to, 
-                            distance: finalData.totalDistance || finalData.distance,
-                            duration: route.durationMin,
-                            geometry: finalData.geometry,
-                            routePartGeometry: route.geometry,
-                            wasExtended: extendToPoint && (finalData.straightStartDistance > 0.01 || finalData.straightEndDistance > 0.01),
-                            straightStartDistance: finalData.straightStartDistance || 0,
-                            routeDistance: finalData.routeDistance || route.distanceKm,
-                            straightEndDistance: finalData.straightEndDistance || 0,
-                            straightStartPoint: finalData.straightStartPoint,
-                            straightEndPoint: finalData.straightEndPoint,
-                            originalStartPoint: [from.lon, from.lat],
-                            originalEndPoint: [to.lon, to.lat]
-                        });
+                        distances.push({ to, distance: finalData.totalDistance || finalData.distance, duration: route.durationMin, geometry: finalData.geometry, finalData });
                     }
                     await new Promise(r => setTimeout(r, delayMs / 2));
                 }
@@ -986,7 +1036,7 @@
                 const nearest = distances.slice(0, nearestK);
                 for (const n of nearest) {
                     successCount++;
-                    if (n.wasExtended) extendedCount++;
+                    if (n.finalData && (n.finalData.straightStartDistance > 0.01 || n.finalData.straightEndDistance > 0.01)) extendedCount++;
                     results.push({
                         from: from.name,
                         to: n.to.name,
@@ -996,17 +1046,12 @@
                         fromCoord: [from.lon, from.lat],
                         toCoord: [n.to.lon, n.to.lat],
                         geometry: n.geometry,
-                        routePartGeometry: n.routePartGeometry,
-                        wasExtended: n.wasExtended,
-                        straightStartDistance: n.straightStartDistance,
-                        routeDistance: n.routeDistance,
-                        straightEndDistance: n.straightEndDistance,
-                        straightStartPoint: n.straightStartPoint,
-                        straightEndPoint: n.straightEndPoint,
-                        originalStartPoint: n.originalStartPoint,
-                        originalEndPoint: n.originalEndPoint
+                        wasExtended: extendToPoint && n.finalData && (n.finalData.straightStartDistance > 0.01 || n.finalData.straightEndDistance > 0.01),
+                        straightStartDistance: n.finalData?.straightStartDistance || 0,
+                        routeDistance: n.finalData?.routeDistance || n.distance,
+                        straightEndDistance: n.finalData?.straightEndDistance || 0
                     });
-                    drawFullRoute(n);
+                    drawFullRoute(n.finalData || { geometry: n.geometry }, false);
                 }
                 completed++;
                 progressFill.style.width = (completed / pointsFrom.length) * 100 + '%';
@@ -1016,7 +1061,12 @@
         
         addLog(`📊 ИТОГИ: ${successCount} успешно, ${errorCount} ошибок`, 'success');
         if (extendToPoint && extendedCount > 0) {
-            addLog(`✚ ДОСТРОЕНО: ${extendedCount} маршрутов имеют прямые участки (оранжевая от Откуда, фиолетовая до Куда)`, 'success');
+            addLog(`✚ ДОСТРОЕНО: ${extendedCount} маршрутов имеют прямые участки`, 'success');
+        }
+        if (useAlternatives && altTotalCount > 0) {
+            addLog(`🔄 АЛЬТЕРНАТИВЫ: Найдено ${altTotalCount} альтернативных маршрутов (серые пунктирные линии)`, 'success');
+        } else if (useAlternatives && altTotalCount === 0) {
+            addLog(`ℹ️ Альтернативные маршруты не найдены. OSRM возвращает альтернативы только при наличии реальных объездов и развязок.`, 'info');
         }
         
         // Выделение ближайших маршрутов
@@ -1041,12 +1091,31 @@
             });
         }
         
-        const resultsContainer = document.getElementById('resultsList');
+        updateResultsUI(nearestMap);
+        updateStatistics();
+        updateExportButtonsState();
+        exportBtn.disabled = results.length === 0;
+        calcBtn.disabled = false;
+        abortBtn.style.display = 'none';
+        isCalculating = false;
+        updateStatus(`✅ Расчет завершен: ${successCount} маршрутов${extendToPoint && extendedCount > 0 ? `, ${extendedCount} с полным достроением` : ''}${useAlternatives && altTotalCount > 0 ? `, ${altTotalCount} альтернатив` : ''}`);
+        document.getElementById('progressSection').style.display = 'none';
+    });
+    
+    function updateResultsUI(nearestMap = new Map()) {
+        const mainContainer = document.getElementById('mainResults');
+        const altContainer = document.getElementById('alternativeResults');
+        const altBadge = document.getElementById('altCountBadge');
+        
+        const altTotal = alternativeRoutesStore.reduce((sum, g) => sum + g.alternatives.length, 0);
+        if (altBadge) altBadge.innerText = altTotal;
+        
         document.getElementById('resultsBadge').innerText = results.length;
+        
         if (!results.length) {
-            resultsContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет результатов</div>';
+            mainContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет результатов</div>';
         } else {
-            resultsContainer.innerHTML = results.map((r, idx) => {
+            mainContainer.innerHTML = results.map((r, idx) => {
                 if (r.status === 'OK') {
                     const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from) === idx;
                     const nearestClass = isNearest ? 'result-nearest' : '';
@@ -1054,7 +1123,7 @@
                     const extendedBadge = r.wasExtended ? '<span class="straight-line-indicator">🟠🟣 полное достроение</span>' : '';
                     const cost = calculateRouteCost(r.distance);
                     const straightInfo = r.wasExtended ? `<div style="font-size: 9px; color: #8b5cf6; margin-top: 2px;">📐 от точки: ${r.straightStartDistance.toFixed(2)} км + дорога: ${r.routeDistance.toFixed(2)} км + до точки: ${r.straightEndDistance.toFixed(2)} км = ${r.distance.toFixed(2)} км</div>` : '';
-                    return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, ${idx}, {straightStartPoint: ${JSON.stringify(r.straightStartPoint)}, straightEndPoint: ${JSON.stringify(r.straightEndPoint)}, originalStartPoint: ${JSON.stringify(r.originalStartPoint)}, originalEndPoint: ${JSON.stringify(r.originalEndPoint)}, straightStartDistance: ${r.straightStartDistance}, straightEndDistance: ${r.straightEndDistance}})">
+                    return `<div class="result-item result-success ${nearestClass}" onclick="highlightMainRoute(${idx})">
                                 <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong>
                                 ${nearestBadge} ${extendedBadge}
                                 <div class="distance-info">
@@ -1071,17 +1140,45 @@
             }).join('');
         }
         
-        updateStatistics();
-        updateExportButtonsState();
-        exportBtn.disabled = results.length === 0;
-        calcBtn.disabled = false;
-        abortBtn.style.display = 'none';
-        isCalculating = false;
-        updateStatus(`✅ Расчет завершен: ${successCount} маршрутов${extendToPoint && extendedCount > 0 ? `, ${extendedCount} с полным достроением (оранжевая + фиолетовая линии)` : ''}`);
-        document.getElementById('progressSection').style.display = 'none';
-    });
+        // Альтернативные маршруты
+        if (alternativeRoutesStore.length > 0) {
+            let altHtml = '';
+            alternativeRoutesStore.forEach((group, groupIdx) => {
+                altHtml += `<div class="alternative-header"><strong>${escapeHtml(group.from)} → ${escapeHtml(group.to)}</strong> (${group.alternatives.length} альт.)</div>`;
+                group.alternatives.forEach((alt, altIdx) => {
+                    const cost = calculateRouteCost(alt.distance);
+                    altHtml += `<div class="result-item result-alternative" onclick="highlightAlternativeRoute(${groupIdx}, ${altIdx})">
+                                    <strong>🔄 Альтернатива #${altIdx+1}</strong>
+                                    <div class="distance-info">📍 ${alt.distance.toFixed(2)} км | ⏱ ${Math.round(alt.duration)} мин | 💰 ${formatRubles(cost.total)}</div>
+                                </div>`;
+                });
+            });
+            altContainer.innerHTML = altHtml;
+        } else {
+            altContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет альтернативных маршрутов<br><small>Включите опцию "Запрашивать альтернативные маршруты" и повторите расчет</small></div>';
+        }
+    }
     
-    window.highlightRoute = highlightRoute;
+    window.highlightMainRoute = function(idx) {
+        const route = results[idx];
+        if (route && route.geometry) {
+            highlightRouteGeometry(route.geometry);
+            currentHighlightedIndex = idx;
+            updateStatus(`Выделен маршрут: ${route.from} → ${route.to}`);
+            updateExportButtonsState();
+        }
+    };
+    
+    window.highlightAlternativeRoute = function(groupIdx, altIdx) {
+        const group = alternativeRoutesStore[groupIdx];
+        if (group && group.alternatives[altIdx]) {
+            const alt = group.alternatives[altIdx];
+            highlightRouteGeometry(alt.geometry);
+            currentHighlightedIndex = -1;
+            updateStatus(`Выделен альтернативный маршрут: ${group.from} → ${group.to} (#${altIdx+1})`);
+            updateExportButtonsState();
+        }
+    };
     
     // ========== ЭКСПОРТ В EXCEL ==========
     document.getElementById('exportBtn').addEventListener('click', () => {
@@ -1152,7 +1249,7 @@
                 <td align="right">${costVal}</td>
                 <td align="center">${nearestBadge}</td>
                 <td align="center">${extendedBadge}</td>
-              </tr>`;
+               </tr>`;
         });
         htmlTable += `</tbody></table><div class="info">⭐ Желтым выделены ближайшие маршруты<br>🟠 Оранжевая пунктирная - прямая от точки "Откуда" до дороги<br>🟣 Фиолетовая пунктирная - прямая от дороги до точки "Куда"</div></body></html>`;
         
@@ -1164,6 +1261,87 @@
         URL.revokeObjectURL(link.href);
         updateStatus(`✅ Экспортировано ${results.length} маршрутов в Excel`);
     });
+    
+    // ========== ЭКСПОРТ KML ==========
+    function generateKMLForRoute(route, index, isAlternative = false, altInfo = '') {
+        if (!route.geometry || route.geometry.length < 2) return '';
+        const coordinates = route.geometry.map(coord => `${coord[0]},${coord[1]},0`).join(' ');
+        const cost = calculateRouteCost(route.distance);
+        const namePrefix = isAlternative ? `Альтернатива #${index+1}: ` : `Маршрут #${index+1}: `;
+        const style = isAlternative ? '#altRouteStyle' : '#routeStyle';
+        
+        return `  <Placemark>
+    <name>${namePrefix}${escapeXml(route.from || '?')} → ${escapeXml(route.to || '?')}</name>
+    <description><![CDATA[
+        <strong>Расстояние:</strong> ${route.distance.toFixed(2)} км<br/>
+        <strong>Время:</strong> ${Math.round(route.duration)} мин<br/>
+        <strong>Стоимость:</strong> ${formatRubles(cost.total)}${altInfo}
+    ]]></description>
+    <styleUrl>${style}</styleUrl>
+    <LineString>
+      <tessellate>1</tessellate>
+      <coordinates>${coordinates}</coordinates>
+    </LineString>
+  </Placemark>`;
+    }
+    
+    function generateKML(resultsToExport, alternativesToExport, title = "Маршруты") {
+        let kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(title)}</name>
+    <Style id="routeStyle">
+      <LineStyle><color>ff669e05</color><width>4</width></LineStyle>
+    </Style>
+    <Style id="altRouteStyle">
+      <LineStyle><color>ffa9a9a9</color><width>3</width></LineStyle>
+    </Style>`;
+        
+        resultsToExport.forEach((route, idx) => {
+            if (route.status === 'OK' && route.geometry) {
+                kml += generateKMLForRoute(route, idx, false, '');
+            }
+        });
+        
+        alternativesToExport.forEach((group, groupIdx) => {
+            group.alternatives.forEach((alt, altIdx) => {
+                if (alt.geometry) {
+                    kml += generateKMLForRoute({ ...alt, from: group.from, to: group.to }, altIdx, true, '<br/><strong>Альтернативный маршрут</strong>');
+                }
+            });
+        });
+        
+        kml += `\n  </Document>\n</kml>`;
+        return kml;
+    }
+    
+    document.getElementById('exportKmlBtn').addEventListener('click', () => {
+        if (!results.length && !alternativeRoutesStore.length) { updateStatus('Нет маршрутов для экспорта', true); return; }
+        const okResults = results.filter(r => r.status === 'OK');
+        const kml = generateKML(okResults, alternativeRoutesStore, `Маршруты_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}`);
+        downloadFile(kml, `маршруты_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.kml`, 'application/vnd.google-earth.kml+xml');
+        updateStatus(`✅ Экспортировано ${okResults.length} маршрутов и альтернатив в KML`);
+    });
+    
+    document.getElementById('exportSelectedKmlBtn').addEventListener('click', () => {
+        if (currentHighlightedIndex >= 0 && results[currentHighlightedIndex] && results[currentHighlightedIndex].status === 'OK') {
+            const route = results[currentHighlightedIndex];
+            const kml = `<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><name>${escapeXml(route.from)} → ${escapeXml(route.to)}</name><LineString><coordinates>${route.geometry.map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LineString></Placemark></kml>`;
+            downloadFile(kml, `маршрут_${route.from}_→_${route.to}.kml`, 'application/vnd.google-earth.kml+xml');
+            updateStatus(`✅ Экспортирован маршрут: ${route.from} → ${route.to}`);
+        } else {
+            updateStatus('❌ Сначала выделите маршрут кликом по результату', true);
+        }
+    });
+    
+    function downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
     
     // ========== КНОПКИ ==========
     document.getElementById('locateBtn').addEventListener('click', () => {
@@ -1196,17 +1374,20 @@
     });
     
     document.getElementById('clearAllPointsBtn').addEventListener('click', () => {
-        pointsFrom = []; pointsTo = []; results = [];
+        pointsFrom = []; pointsTo = []; results = []; alternativeRoutesStore = [];
         updateFromList(); updateToList();
         clearMapRoutes();
         fromMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
         toMarkers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
         fromMarkers = []; toMarkers = [];
         document.getElementById('resultsBadge').innerText = '0';
-        document.getElementById('resultsList').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Загрузите данные и нажмите "Начать расчет"</div>';
+        document.getElementById('mainResults').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Загрузите данные и нажмите "Начать расчет"</div>';
+        document.getElementById('alternativeResults').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет альтернативных маршрутов</div>';
         document.getElementById('statsSection').style.display = 'none';
         if (distanceChart) { distanceChart.destroy(); distanceChart = null; }
         document.getElementById('exportBtn').disabled = true;
+        document.getElementById('exportKmlBtn').disabled = true;
+        document.getElementById('exportSelectedKmlBtn').disabled = true;
         updateStatus('Все точки очищены');
     });
     
@@ -1220,9 +1401,13 @@
         updateToList();
         clearMapRoutes();
         results = [];
+        alternativeRoutesStore = [];
         document.getElementById('resultsBadge').innerText = '0';
-        document.getElementById('resultsList').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Загрузите данные и нажмите "Начать расчет"</div>';
+        document.getElementById('mainResults').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Загрузите данные и нажмите "Начать расчет"</div>';
+        document.getElementById('alternativeResults').innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 20px;">Нет альтернативных маршрутов</div>';
         document.getElementById('exportBtn').disabled = true;
+        document.getElementById('exportKmlBtn').disabled = true;
+        document.getElementById('exportSelectedKmlBtn').disabled = true;
         document.getElementById('statsSection').style.display = 'none';
         if (distanceChart) { distanceChart.destroy(); distanceChart = null; }
         updateStatus(`✅ Точки "Откуда" и "Куда" поменяны местами. Откуда: ${pointsFrom.length}, Куда: ${pointsTo.length}`);
@@ -1359,6 +1544,7 @@
     
     // ========== ВСПОМОГАТЕЛЬНЫЕ ==========
     function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+    function escapeXml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
     function updateStatus(msg, isErr = false) { document.getElementById('statusMsg').textContent = msg; console.log(msg); }
     function addLog(message, type) { 
         const logContainer = document.getElementById('logContainer');
@@ -1370,101 +1556,14 @@
     }
     function clearLogs() { document.getElementById('logContainer').innerHTML = '<div>🚀 Готов к работе</div>'; }
     
-    // ========== ФУНКЦИИ ЭКСПОРТА KML ==========
     function updateExportButtonsState() {
-        const exportExcelBtn = document.getElementById('exportBtn');
-        const exportKmlAllBtn = document.getElementById('exportKmlBtn');
-        const exportKmlSelectedBtn = document.getElementById('exportSelectedKmlBtn');
-        
         const hasResults = results.length > 0 && results.some(r => r.status === 'OK');
-        if (exportExcelBtn) exportExcelBtn.disabled = !hasResults;
-        if (exportKmlAllBtn) exportKmlAllBtn.disabled = !hasResults;
-        
-        const hasSelected = window.currentHighlightedIndex !== undefined && window.currentHighlightedIndex !== -1 && 
-                            results[window.currentHighlightedIndex] && results[window.currentHighlightedIndex].status === 'OK';
-        if (exportKmlSelectedBtn) exportKmlSelectedBtn.disabled = !hasSelected;
-    }
-    
-    function generateKMLForRoute(route, index) {
-        if (!route.geometry || route.geometry.length < 2) return '';
-        const coordinates = route.geometry.map(coord => `${coord[0]},${coord[1]},0`).join(' ');
-        const cost = calculateRouteCost(route.distance);
-        const extendedInfo = route.wasExtended ? `<br/><strong>Прямая от Откуда:</strong> ${route.straightStartDistance.toFixed(2)} км<br/><strong>Прямая до Куда:</strong> ${route.straightEndDistance.toFixed(2)} км` : '';
-        
-        return `  <Placemark>
-    <name>Маршрут #${index + 1}: ${escapeXml(route.from)} → ${escapeXml(route.to)}</name>
-    <description><![CDATA[
-        <strong>Прямая от точки Откуда:</strong> ${(route.straightStartDistance || 0).toFixed(2)} км<br/>
-        <strong>Расстояние по дорогам:</strong> ${(route.routeDistance || route.distance).toFixed(2)} км<br/>
-        <strong>Прямая до точки Куда:</strong> ${(route.straightEndDistance || 0).toFixed(2)} км<br/>
-        <strong>Общее расстояние:</strong> ${route.distance.toFixed(2)} км<br/>
-        <strong>Время:</strong> ${Math.round(route.duration)} мин<br/>
-        <strong>Стоимость:</strong> ${formatRubles(cost.total)}${extendedInfo}
-    ]]></description>
-    <styleUrl>#routeStyle</styleUrl>
-    <LineString>
-      <tessellate>1</tessellate>
-      <coordinates>${coordinates}</coordinates>
-    </LineString>
-  </Placemark>`;
-    }
-    
-    function generateKML(resultsToExport, title = "Маршруты") {
-        let kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${escapeXml(title)}</name>
-    <Style id="routeStyle">
-      <LineStyle><color>ff669e05</color><width>4</width></LineStyle>
-    </Style>`;
-        
-        resultsToExport.forEach((route, idx) => {
-            if (route.status === 'OK' && route.geometry) {
-                kml += generateKMLForRoute(route, idx);
-            }
-        });
-        kml += `\n  </Document>\n</kml>`;
-        return kml;
-    }
-    
-    function exportAllToKML() {
-        if (!results.length) { updateStatus('Нет маршрутов для экспорта', true); return; }
-        const okResults = results.filter(r => r.status === 'OK');
-        if (!okResults.length) { updateStatus('Нет успешных маршрутов для экспорта', true); return; }
-        const kml = generateKML(okResults, `Маршруты_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}`);
-        downloadFile(kml, `маршруты_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.kml`, 'application/vnd.google-earth.kml+xml');
-        updateStatus(`✅ Экспортировано ${okResults.length} маршрутов в KML`);
-    }
-    
-    function exportSelectedToKML() {
-        if (window.currentHighlightedIndex === undefined || window.currentHighlightedIndex === -1 || 
-            !results[window.currentHighlightedIndex] || results[window.currentHighlightedIndex].status !== 'OK') {
-            updateStatus('❌ Сначала выделите маршрут кликом по результату', true);
-            return;
-        }
-        const kml = generateKML([results[window.currentHighlightedIndex]], `Маршрут_${results[window.currentHighlightedIndex].from}_→_${results[window.currentHighlightedIndex].to}`);
-        downloadFile(kml, `маршрут_${results[window.currentHighlightedIndex].from}_→_${results[window.currentHighlightedIndex].to}.kml`, 'application/vnd.google-earth.kml+xml');
-        updateStatus(`✅ Экспортирован маршрут: ${results[window.currentHighlightedIndex].from} → ${results[window.currentHighlightedIndex].to}`);
-    }
-    
-    function downloadFile(content, filename, mimeType) {
-        const blob = new Blob([content], { type: mimeType });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = filename;
-        link.click();
-        URL.revokeObjectURL(link.href);
-    }
-    
-    function escapeXml(str) {
-        if (!str) return '';
-        return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+        document.getElementById('exportBtn').disabled = !hasResults;
+        document.getElementById('exportKmlBtn').disabled = !hasResults;
+        document.getElementById('exportSelectedKmlBtn').disabled = currentHighlightedIndex === -1;
     }
     
     // ========== ФИЛЬТР ==========
-    let originalResultsStore = [];
-    let maxDistanceOverall = 1000;
-    
     function updateSliderMaxDistance() {
         const distances = results.filter(r => r.status === 'OK').map(r => r.distance);
         if (distances.length > 0) {
@@ -1506,12 +1605,7 @@
         results.length = 0;
         results.push(...filtered);
         
-        routeLines.forEach(line => { if (map && map.hasLayer(line)) map.removeLayer(line); });
-        straightStartLines.forEach(line => { if (map && map.hasLayer(line)) map.removeLayer(line); });
-        straightEndLines.forEach(line => { if (map && map.hasLayer(line)) map.removeLayer(line); });
-        routeLines = [];
-        straightStartLines = [];
-        straightEndLines = [];
+        clearMapRoutes();
         
         filtered.forEach(r => {
             if (r.geometry) {
@@ -1524,7 +1618,7 @@
                     straightEndPoint: r.straightEndPoint,
                     originalStartPoint: r.originalStartPoint,
                     originalEndPoint: r.originalEndPoint
-                });
+                }, false);
             }
         });
         
@@ -1549,27 +1643,7 @@
             });
         }
         
-        const resultsContainer = document.getElementById('resultsList');
-        document.getElementById('resultsBadge').innerText = results.length;
-        
-        if (!results.length) {
-            resultsContainer.innerHTML = `<div style="text-align: center; color: #94a3b8; padding: 20px;"><i class="fas fa-filter"></i><br>Нет маршрутов короче ${maxDist} км</div>`;
-        } else {
-            resultsContainer.innerHTML = results.map((r, idx) => {
-                const isNearest = nearestMap.has(r.from) && nearestMap.get(r.from) === idx;
-                const nearestClass = isNearest ? 'result-nearest' : '';
-                const nearestBadge = isNearest ? '<span class="nearest-badge">⭐ Ближайший!</span>' : '';
-                const extendedBadge = r.wasExtended ? '<span class="straight-line-indicator">🟠🟣 полное достроение</span>' : '';
-                const cost = calculateRouteCost(r.distance);
-                const straightInfo = r.wasExtended ? `<div style="font-size: 9px; color: #8b5cf6;">📐 от точки: ${r.straightStartDistance.toFixed(2)} км + дорога: ${r.routeDistance.toFixed(2)} км + до точки: ${r.straightEndDistance.toFixed(2)} км</div>` : '';
-                return `<div class="result-item result-success ${nearestClass}" onclick="highlightRoute(${JSON.stringify(r.geometry)}, ${idx}, {straightStartPoint: ${JSON.stringify(r.straightStartPoint)}, straightEndPoint: ${JSON.stringify(r.straightEndPoint)}, originalStartPoint: ${JSON.stringify(r.originalStartPoint)}, originalEndPoint: ${JSON.stringify(r.originalEndPoint)}, straightStartDistance: ${r.straightStartDistance}, straightEndDistance: ${r.straightEndDistance}})">
-                            <strong>${escapeHtml(r.from)}</strong> → <strong>${escapeHtml(r.to)}</strong> ${nearestBadge} ${extendedBadge}
-                            <div class="distance-info">📍 ${r.distance.toFixed(2)} км | ⏱ ${Math.round(r.duration)} мин | 💰 ${formatRubles(cost.total)}</div>
-                            ${straightInfo}
-                        </div>`;
-            }).join('');
-        }
-        
+        updateResultsUI(nearestMap);
         updateStatistics();
         updateStatus(`🔍 Показано ${results.length} маршрутов из ${sourceResults.length} (до ${maxDist} км)`);
     }
@@ -1577,6 +1651,35 @@
     function initDistanceFilter() {
         const slider = document.getElementById('maxDistanceFilter');
         if (slider) slider.addEventListener('input', filterResultsByDistance);
+    }
+    
+    // ========== ТАБЫ ==========
+    function initTabs() {
+        const mainTab = document.querySelector('.result-tab[data-tab="main"]');
+        const altTab = document.querySelector('.result-tab[data-tab="alternatives"]');
+        const mainResults = document.getElementById('mainResults');
+        const altResults = document.getElementById('alternativeResults');
+        
+        if (mainTab && altTab) {
+            mainTab.addEventListener('click', () => {
+                mainTab.classList.add('active');
+                altTab.classList.remove('active');
+                mainResults.style.display = 'block';
+                altResults.style.display = 'none';
+                altResults.classList.remove('active');
+                mainResults.classList.add('active');
+            });
+            altTab.addEventListener('click', () => {
+                altTab.classList.add('active');
+                mainTab.classList.remove('active');
+                altResults.style.display = 'block';
+                mainResults.style.display = 'none';
+                altResults.classList.add('active');
+                mainResults.classList.remove('active');
+            });
+        }
+        mainResults.style.display = 'block';
+        altResults.style.display = 'none';
     }
     
     // ========== ИНИЦИАЛИЗАЦИЯ ==========
@@ -1598,14 +1701,12 @@
         else updateStatus('Неподдерживаемый формат', true);
     });
     
-    document.getElementById('exportKmlBtn').addEventListener('click', exportAllToKML);
-    document.getElementById('exportSelectedKmlBtn').addEventListener('click', exportSelectedToKML);
-    
     setupSearch();
     updateCostPerKm();
     initMap();
     initDistanceFilter();
-    updateStatus('Готов к работе. Включите "Полное достроение до точек" для добавления оранжевых и фиолетовых пунктирных линий');
+    initTabs();
+    updateStatus('Готов к работе. Включите "Альтернативные маршруты" для получения серых пунктирных треков (доступны только при наличии развязок)');
 </script>
 </body>
 </html>
